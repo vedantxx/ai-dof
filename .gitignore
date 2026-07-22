@@ -1,0 +1,27 @@
+# Personal and employer material — never publish
+docs/
+
+# Full-detail dataset (16.7k rows). Superseded by data_compact/, which is the
+# canonical set because it works in both Quadratic and QuickBooks free tier.
+# Regenerate from the scripts if you need the denser version.
+data/
+
+# OS and editor noise
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets — never commit connector tokens or API keys
+.env
+.env.*
+*.local
+credentials.json

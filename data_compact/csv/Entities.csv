@@ -1,0 +1,6 @@
+EntityCode,LegalName,FunctionalCurrency,FXRateToUSD,OwnershipPct,Parent,Role,Jurisdiction,FiscalYearEnd,ERP
+MHG,Meridian Holdings Group LLC,USD,1.0,,,Holding company / shared services,United States,December 31,QuickBooks Online
+MLG,Meridian Logistics LLC,USD,1.0,100,Meridian Holdings Group LLC,Freight brokerage & last mile,United States,December 31,QuickBooks Online
+CFS,Cascade Freight Systems Inc,USD,1.0,100,Meridian Holdings Group LLC,Asset-based trucking (acquired Mar-2024),United States,December 31,QuickBooks Online
+NWC,Northwind Cargo B.V.,EUR,1.09,100,Meridian Holdings Group LLC,"EU forwarding, customs & TMS software",Netherlands,December 31,QuickBooks Online
+APX,Apex Warehousing LLC,USD,1.0,100,Meridian Holdings Group LLC,Warehousing & fulfillment (3PL),United States,December 31,QuickBooks Online

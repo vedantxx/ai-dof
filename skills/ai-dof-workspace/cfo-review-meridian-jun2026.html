@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFO Review</title>
+<script>
+/* ============================================================================
+   FILL THIS OBJECT. DO NOT EDIT ANYTHING BELOW THE "RENDER ENGINE" MARKER.
+
+   Any section left as an empty array, empty string, or null is hidden
+   automatically. Leave a section empty when the source data does not
+   support it - never invent content to fill it.
+
+   Severity values are always one of: "critical", "high", "medium", "low".
+   Use "ok" for a positive/all-clear state.
+   ============================================================================ */
+const DATA = {
+  meta: { company:"Meridian Holdings Group", subtitle:"Consolidated – 4 operating entities",
+    period:"24 months to June 2026", asOf:"30 June 2026", currency:"USD",
+    preparedFor:"CEO and Board", preparedBy:"Office of the CFO" },
+  headline: { posture:"high",
+    verdict:"Group margin looks flat, but Cascade has lost 13 points in two years and only a temporary improvement at Apex is hiding it.",
+    summary:[
+      "Consolidated gross margin moved 0.3 points, which reads as a stable year and is not one. Cascade Freight has gone from 31.9% to 18.6% while Apex improved enough to offset it at group level. That offset will not repeat — margin improvements plateau, deteriorations compound — so on current trends the consolidated number falls sharply next year with no prior warning in the reporting.",
+      "Separately, the largest customer at 10.3% of revenue has cut billings by 90% over five months with no cancellation on file. Nobody escalated it. The forecast almost certainly still assumes this revenue.",
+      "Cascade is also the worst collector in the group — 45 to 64 days — and carries the lowest bad debt provision at 0.09% against 0.32% everywhere else. The provision is being set by habit rather than by risk, which means reported earnings at that entity are overstated."],
+    callouts:[{label:"Revenue at risk",value:"$2.2M"},{label:"Cash tied up",value:"~$1.1M"},{label:"Actions this week",value:"3"}]},
+  kpis:[
+    {label:"Revenue (FY2025)",value:"$21.2M",delta:"+8.4% YoY",trend:"up",good:true,severity:"ok",note:"Growth intact, but concentrated in the entities with the thinnest margins."},
+    {label:"Gross margin",value:"34.1%",delta:"-0.3 pts",trend:"down",good:false,severity:"high",note:"Stable only in aggregate. The segment view is the one that matters."},
+    {label:"Cascade margin",value:"18.6%",delta:"-13.3 pts",trend:"down",good:false,severity:"critical",note:"Two-year decline, still moving. The single largest earnings issue."},
+    {label:"Group DSO",value:"52 days",delta:"+11 days",trend:"up",good:false,severity:"high",note:"Driven almost entirely by Cascade at 64 days."},
+    {label:"Receivables",value:"$4.98M",delta:"+22% vs PY",trend:"up",good:false,severity:"high",note:"Growing faster than revenue — working capital is absorbing the growth."},
+    {label:"Top-4 concentration",value:"28.9%",delta:"+3.1 pts",trend:"up",good:false,severity:"medium",note:"Rising, and the largest of the four is leaving."}],
+  ar:{ total:"$4.98M", current:"$1.88M", overdue:"$3.10M", dso:"52 days", dsoPrior:"41 days", dsoTarget:"40 days",
+    commentary:"Roughly $1.1M more cash sits with customers than two years ago, concentrated at one entity. At current burn that is close to a month of operating expense.",
+    buckets:[{label:"Current",amount:1884000,count:28,severity:"ok"},{label:"1–30 days",amount:1270000,count:13,severity:"low"},
+      {label:"31–60 days",amount:469000,count:3,severity:"medium"},{label:"61–90 days",amount:201000,count:2,severity:"high"},
+      {label:"90+ days",amount:1158000,count:18,severity:"critical"}],
+    agingCommentary:"The shape is wrong. The 90+ bucket is larger than 31–60 and 61–90 combined, which happens when nothing is ever written off rather than when collections are simply slow. $1.16M across 18 invoices sits against a group provision well below that — the write-off has been incurred, it just has not been recognised."},
+  concentration:{ commentary:"Customer concentration by share of consolidated revenue. The largest account is the one currently churning, so the effective concentration risk is worse than the profile suggests.",
+    threshold:10, items:[{name:"Vantage Consumer Brands",pct:10.3},{name:"Ironbridge Manufacturing",pct:7.6},
+      {name:"Northline Grocers Co-op",pct:5.9},{name:"Global Retail Partners",pct:5.1},{name:"Kestrel Auto Components",pct:4.8}]},
+  customerRisk:[
+    {rank:1,name:"Vantage Consumer Brands",exposure:"$620k",revenuePct:"10.3%",daysPastDue:"142",tier:"critical",
+      drivers:"Billings down 90% over five months while payment behaviour slowed in parallel. Both distress signals present at once.",
+      action:"CEO contact this week. Assume impairment pending a written payment commitment."},
+    {rank:2,name:"Redstone Building Supply",exposure:"$318k",revenuePct:"3.4%",daysPastDue:"96",tier:"high",
+      drivers:"Paid at 32 days for two years, now at 96. No dispute logged, no communication.",
+      action:"Controller to obtain a payment plan or place on credit hold within 14 days."},
+    {rank:3,name:"Ferrous Metals Trading",exposure:"$240k",revenuePct:"2.8%",daysPastDue:"74",tier:"high",
+      drivers:"Balance disputed since March over accessorial charges. Unresolved for four months.",
+      action:"CFO and VP Sales to settle the dispute this month — it is a service issue, not a collections issue."},
+    {rank:4,name:"Quarry Stone Materials",exposure:"$187k",revenuePct:"2.1%",daysPastDue:"61",tier:"medium",
+      drivers:"Drifting steadily but still communicating and still ordering.",action:"Standard escalation. Review terms at renewal."},
+    {rank:5,name:"Meadowvale Farms",exposure:"$96k",revenuePct:"1.6%",daysPastDue:"38",tier:"low",
+      drivers:"Seasonal payment pattern consistent with prior years.",action:"No action."}],
+  collections:[
+    {priority:1,customer:"Redstone Building Supply",amount:"$318k",age:"96 days",likelihood:"High",owner:"Controller",dueBy:"14 days",
+      action:"Solvent, undisputed, simply not chased. Fastest cash available — call this week."},
+    {priority:2,customer:"Ferrous Metals Trading",amount:"$240k",age:"74 days",likelihood:"High",owner:"VP Sales",dueBy:"30 days",
+      action:"Resolve the accessorial dispute; the cash follows the resolution."},
+    {priority:3,customer:"Vantage Consumer Brands",amount:"$620k",age:"142 days",likelihood:"Moderate",owner:"CEO",dueBy:"7 days",
+      action:"Executive-level contact. Exposure justifies senior attention now, not later."},
+    {priority:4,customer:"Quarry Stone Materials",amount:"$187k",age:"61 days",likelihood:"High",owner:"Collections",dueBy:"30 days",
+      action:"Structured follow-up on normal cadence."},
+    {priority:5,customer:"Aged book (11 accounts)",amount:"$294k",age:"180+ days",likelihood:"Doubtful",owner:"Controller",dueBy:"This quarter",
+      action:"Assess for write-off. Effort here is better spent on the four above."}],
+  forecast:{ horizon:"Next 13 weeks", commentary:"Assumes historical payment behaviour holds at every entity except Cascade, where the current run rate is used. It does not assume any recovery of the 90+ book.",
+    accuracyNote:"The prior three forecasts ran 12% optimistic on average. Treat the expected case as a ceiling rather than a plan.",
+    series:[{label:"Wk 1–2",expected:620000,atRisk:90000},{label:"Wk 3–4",expected:540000,atRisk:140000},
+      {label:"Wk 5–6",expected:610000,atRisk:120000},{label:"Wk 7–8",expected:480000,atRisk:190000},
+      {label:"Wk 9–10",expected:560000,atRisk:160000},{label:"Wk 11–13",expected:590000,atRisk:200000}],
+    totals:{expected:"$3.4M",atRisk:"$0.9M"}},
+  alerts:[
+    {severity:"critical",title:"Largest customer has effectively churned without anyone recording it",
+      finding:"Vantage Consumer Brands, 10.3% of revenue, fell from $155k to $15k monthly over five months. No cancellation on file.",
+      risk:"About $2.2M of annualised revenue, almost certainly still in the forecast. A decline this size running five months unflagged suggests the same blind spot applies to other accounts.",
+      action:"CEO to make direct executive contact. Rerun the forecast with this account at zero and report what breaks.",owner:"CEO",timing:"This week"},
+    {severity:"critical",title:"Segment margin collapse invisible at group level",
+      finding:"Cascade gross margin 31.9% to 18.6% over 24 months, offset in the consolidated view by Apex improving 42.0% to 45.4%.",
+      risk:"Roughly $1.4M of annual gross profit, compounding. The offset is temporary, so the group figure will fall sharply and without warning.",
+      action:"Report segment margin to the board from this month. Retire the consolidated headline.",owner:"CFO",timing:"This week"},
+    {severity:"high",title:"Bad debt provision is set inversely to risk",
+      finding:"Cascade reserves 0.09% of revenue against 0.32% at every other entity, while carrying the group's worst aging.",
+      risk:"Earnings at Cascade are overstated. $1.16M sits beyond 90 days against a provision materially below it.",
+      action:"Reset provisioning to a risk-based rate and book the catch-up this period rather than spreading it.",owner:"Controller",timing:"Before close"},
+    {severity:"medium",title:"Vendor spend fragmented across name variants",
+      finding:"Three spellings of the same fuel supplier total $3.50M when combined, ranking each individually outside the top five.",
+      risk:"Not a loss — a forgone negotiation. The group is a top-three customer of this supplier and is not pricing like one.",
+      action:"Merge the vendor master and reopen terms at the next renewal.",owner:"Procurement / Controller",timing:"This quarter"},
+    {severity:"medium",title:"Control gaps suggest an error bar on the whole pack",
+      finding:"Intercompany balances out by $100k, five of 24 months missing FX revaluation, and unreconciled suspense items outstanding.",
+      risk:"Individually immaterial. Together they mean consolidated figures carry an unquantified error, which matters more as the group grows.",
+      action:"Clear intercompany and FX before year-end close; put a monthly reconciliation sign-off in place.",owner:"Controller",timing:"30 days"}],
+  risks:[
+    {title:"Customer concentration with an active churn event",category:"Concentration",severity:"critical",
+      likelihood:"Occurring",impact:"$2.2M revenue",
+      description:"Top four customers are 28.9% of revenue and the largest is leaving. Concentration was tolerable while the base was stable; it is not while one of the four is exiting and the reporting did not catch it.",
+      mitigation:"CEO-led retention attempt this week, forecast rerun at zero, and a standing alert on any account declining more than 30% over two periods. Owner: CEO."},
+    {title:"Structural margin erosion at Cascade",category:"Earnings",severity:"critical",
+      likelihood:"Occurring",impact:"~$1.4M annual gross profit",
+      description:"Thirteen points over two years with no sign of stabilising. Cause is not yet established — input cost, mix, or price concession — and the remedy differs entirely by cause.",
+      mitigation:"Rate-versus-volume analysis within 30 days, then a pricing decision. Owner: CFO with Cascade GM."},
+    {title:"Working capital absorbing growth",category:"Liquidity",severity:"high",
+      likelihood:"Likely",impact:"~$1.1M cash",
+      description:"Receivables growing faster than revenue while DSO extends. Profit is not converting to cash at the rate the P&L implies.",
+      mitigation:"Weekly collections cadence on the top eight balances; no terms changes without CFO sign-off. Owner: Controller."},
+    {title:"Under-provisioning at the highest-risk entity",category:"Credit",severity:"high",
+      likelihood:"Likely",impact:"$0.9M–1.2M",
+      description:"Aged balances exceed the provision. The loss is incurred; recognition is lagging.",
+      mitigation:"Risk-based provisioning policy applied consistently across entities, effective this close. Owner: Controller."},
+    {title:"Management reporting did not surface a 90% customer decline",category:"Reporting",severity:"high",
+      likelihood:"Occurring",impact:"Unquantified",
+      description:"A five-month decline in the largest account produced no alert. Whatever failed here is not specific to this customer.",
+      mitigation:"Exception reporting on customer revenue variance, reviewed monthly by CFO. Owner: FP&A."},
+    {title:"Vendor dependency masked by fragmented naming",category:"Concentration",severity:"medium",
+      likelihood:"Possible",impact:"Pricing exposure",
+      description:"Consolidated spend with one supplier is materially larger than any single vendor record shows, so dependency has never been assessed.",
+      mitigation:"Vendor master cleanup and an annual concentration review. Owner: Procurement."}],
+  actions:[
+    {rank:1,action:"CEO to make direct contact with Vantage Consumer Brands and establish whether the account is recoverable.",
+      rationale:"A 90% decline is not recoverable at account-manager level, and every week of delay reduces the odds further.",
+      owner:"CEO",timing:"This week",impact:"$2.2M revenue at stake",effort:"Low"},
+    {rank:2,action:"Rerun the 12-month forecast with Vantage at zero and report what breaks.",
+      rationale:"The plan almost certainly still contains this revenue. Leadership needs to see the gap before committing spend against it.",
+      owner:"FP&A",timing:"This week",impact:"Restores forecast credibility",effort:"Low"},
+    {rank:3,action:"Move board and management reporting to segment margin. Retire the consolidated headline.",
+      rationale:"The consolidated figure concealed a 13-point decline for two years. It will conceal the next one.",
+      owner:"CFO",timing:"Next reporting cycle",impact:"Visibility on ~25% of group revenue",effort:"Low"},
+    {rank:4,action:"Split Cascade's fuel and purchased transport spend between rate and volume, and bring pricing recommendations to the next review.",
+      rationale:"Cost inflation and mix shift call for completely different remedies. Acting before knowing which risks fixing the wrong thing.",
+      owner:"CFO with Cascade GM",timing:"30 days",impact:"Determines the path back to ~6 of the 13 points lost",effort:"Medium",
+      tradeoff:"Repricing to recover margin will cost volume at an entity already losing share."},
+    {rank:5,action:"Reset the bad debt provision to a risk-based rate across all entities and book the catch-up this period.",
+      rationale:"Reserving least where risk is highest overstates earnings and delays a loss already incurred.",
+      owner:"Controller",timing:"Before close",impact:"~$0.9M charge, correctly placed",effort:"Low",
+      tradeoff:"Reduces reported earnings this period. Better taken now than discovered at audit."},
+    {rank:6,action:"Place the eight balances over 90 days on a weekly call cadence with a named owner each.",
+      rationale:"The 90+ bucket is larger than the two beneath it combined, which is a chasing problem before it is a credit problem.",
+      owner:"Controller",timing:"From Monday",impact:"~$400k recovery target in 60 days",effort:"Medium"},
+    {rank:7,action:"Merge duplicate vendor records and reopen fuel supply terms at renewal.",
+      rationale:"The group is a top-three customer of this supplier and has never negotiated as one.",
+      owner:"Procurement",timing:"This quarter",impact:"2–4% of $3.5M annual spend",effort:"Low"}],
+  nextSteps:[
+    {when:"This week",item:"CEO contact with Vantage; forecast rerun at zero; segment margin added to the board pack.",owner:"CEO / FP&A / CFO"},
+    {when:"Before close",item:"Provision reset booked; intercompany and FX differences cleared.",owner:"Controller"},
+    {when:"30 days",item:"Cascade rate-versus-volume analysis returned with pricing recommendations.",owner:"CFO"},
+    {when:"30 days",item:"Customer-level aging for Cascade produced so the DSO cause can be established.",owner:"FP&A"},
+    {when:"Next review",item:"Exception reporting on customer revenue variance live and tested against the last 24 months.",owner:"FP&A"}],
+  dataNotes:[
+    "Cascade's fuel spend is not split between rate and volume, so the margin decline cannot yet be attributed to input cost versus pricing. This blocks the pricing decision.",
+    "No customer-level aging for Cascade, so it is not possible to tell whether the DSO slippage is broad or concentrated in a few distressed accounts. The two have different remedies.",
+    "Whether Vantage has formally terminated is not stated. Treated here as churn on the basis of the billing pattern.",
+    "Cash balance and facility headroom were not supplied, so runway and covenant proximity could not be assessed. Both are needed before the provision charge is taken."]
+};
+
+</script>
+
+<!-- ===================== RENDER ENGINE - DO NOT EDIT ===================== -->
+<style>
+  :root{
+    --ink:#0E1726; --ink-2:#1F2C40; --slate:#5A6B82; --mute:#8A99AD;
+    --line:#E3E8EF; --line-2:#EEF2F7; --canvas:#F6F8FB; --card:#FFFFFF;
+    --brand:#1B3A6B; --brand-2:#2E5A9E;
+    --critical:#B3261E; --critical-bg:#FDECEA;
+    --high:#B45309;     --high-bg:#FEF3E2;
+    --medium:#8A6D1F;   --medium-bg:#FBF5E3;
+    --low:#3F6212;      --low-bg:#F2F7E8;
+    --ok:#0F6B4F;       --ok-bg:#E8F5F0;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 14px rgba(16,24,40,.05);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--canvas); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px 72px}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+  /* Masthead */
+  .masthead{background:var(--brand);color:#fff;padding:34px 0 30px;margin-bottom:26px}
+  .masthead .wrap{padding-bottom:0}
+  .mast-eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#A9C0E0;font-weight:600}
+  .mast-title{font-size:30px;line-height:1.2;font-weight:680;margin:8px 0 4px;letter-spacing:-.015em}
+  .mast-sub{font-size:15px;color:#C6D6EC;margin:0}
+  .mast-meta{display:flex;flex-wrap:wrap;gap:0 34px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.16)}
+  .mast-meta div{font-size:12.5px;color:#C6D6EC}
+  .mast-meta strong{display:block;color:#fff;font-weight:600;font-size:13.5px;margin-top:2px}
+
+  /* Sections */
+  section{margin-bottom:34px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin:0 0 14px}
+  .sec-head h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);
+    font-weight:700;margin:0;white-space:nowrap}
+  .sec-head .rule{flex:1;height:1px;background:var(--line)}
+  .sec-note{font-size:14px;color:var(--slate);margin:0 0 14px;max-width:80ch}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  .pad{padding:20px 22px}
+
+  /* Verdict banner */
+  .verdict{border-radius:14px;padding:24px 26px;border:1px solid;margin-bottom:8px}
+  .verdict.critical{background:var(--critical-bg);border-color:#F0C4BF}
+  .verdict.high{background:var(--high-bg);border-color:#F2DCB8}
+  .verdict.medium{background:var(--medium-bg);border-color:#EBDFB6}
+  .verdict.ok{background:var(--ok-bg);border-color:#BFE0D3}
+  .verdict-label{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:700;margin-bottom:9px}
+  .verdict.critical .verdict-label{color:var(--critical)}
+  .verdict.high .verdict-label{color:var(--high)}
+  .verdict.medium .verdict-label{color:var(--medium)}
+  .verdict.ok .verdict-label{color:var(--ok)}
+  .verdict h3{margin:0 0 4px;font-size:21px;line-height:1.35;font-weight:660;letter-spacing:-.01em}
+  .summary p{margin:12px 0 0;font-size:15.5px;line-height:1.62;color:var(--ink-2);max-width:88ch}
+  .callouts{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+  .callout{background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.07);border-radius:9px;padding:9px 14px}
+  .callout .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .callout .v{font-size:19px;font-weight:680;letter-spacing:-.01em;margin-top:1px}
+
+  /* KPI cards */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:17px 18px;
+    box-shadow:var(--shadow);border-top:3px solid var(--line);position:relative}
+  .kpi.critical{border-top-color:var(--critical)} .kpi.high{border-top-color:var(--high)}
+  .kpi.medium{border-top-color:var(--medium)} .kpi.low{border-top-color:var(--low)}
+  .kpi.ok{border-top-color:var(--ok)}
+  .kpi .k{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .kpi .v{font-size:27px;font-weight:680;letter-spacing:-.02em;margin:5px 0 2px;line-height:1.15}
+  .kpi .d{font-size:13px;font-weight:620;display:inline-flex;align-items:center;gap:4px}
+  .kpi .d.good{color:var(--ok)} .kpi .d.bad{color:var(--critical)} .kpi .d.neutral{color:var(--slate)}
+  .kpi .n{font-size:13px;color:var(--slate);margin-top:9px;line-height:1.5}
+
+  /* Pills */
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+  .pill.critical{background:var(--critical-bg);color:var(--critical);border-color:#F0C4BF}
+  .pill.high{background:var(--high-bg);color:var(--high);border-color:#F2DCB8}
+  .pill.medium{background:var(--medium-bg);color:var(--medium);border-color:#EBDFB6}
+  .pill.low{background:var(--low-bg);color:var(--low);border-color:#D9E7C4}
+  .pill.ok{background:var(--ok-bg);color:var(--ok);border-color:#BFE0D3}
+  .pill.plain{background:var(--line-2);color:var(--slate);border-color:var(--line)}
+
+  /* AR strip */
+  .arstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .arstrip > div{padding:16px 18px;border-right:1px solid var(--line-2)}
+  .arstrip > div:last-child{border-right:0}
+  .arstrip .k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .arstrip .v{font-size:22px;font-weight:670;letter-spacing:-.015em;margin-top:3px}
+  .arstrip .s{font-size:12.5px;color:var(--mute);margin-top:2px}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  thead th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);font-weight:700;
+    text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);background:#FBFCFE;white-space:nowrap}
+  tbody td{padding:13px 14px;border-bottom:1px solid var(--line-2);vertical-align:top;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:0}
+  td.r,th.r{text-align:right}
+  td.rank{font-weight:700;color:var(--mute);width:34px}
+  td.name{font-weight:640;color:var(--ink);white-space:nowrap}
+  .sub{display:block;font-size:12.5px;color:var(--mute);font-weight:400;margin-top:2px;white-space:normal}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
+
+  /* Alerts */
+  .alert{display:grid;grid-template-columns:112px 1fr;gap:0;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:11px;overflow:hidden;box-shadow:var(--shadow)}
+  .alert .sev{padding:17px 14px;display:flex;flex-direction:column;gap:7px;align-items:flex-start;border-right:1px solid var(--line-2)}
+  .alert.critical .sev{background:var(--critical-bg)} .alert.high .sev{background:var(--high-bg)}
+  .alert.medium .sev{background:var(--medium-bg)} .alert.low .sev{background:var(--low-bg)}
+  .alert.ok .sev{background:var(--ok-bg)}
+  .alert .body{padding:16px 18px}
+  .alert h4{margin:0 0 9px;font-size:16px;font-weight:660;letter-spacing:-.005em}
+  .alert dl{margin:0;display:grid;grid-template-columns:78px 1fr;gap:5px 12px;font-size:14px}
+  .alert dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:700;padding-top:3px}
+  .alert dd{margin:0;color:var(--ink-2);line-height:1.5}
+  .alert .who{margin-top:11px;padding-top:10px;border-top:1px solid var(--line-2);font-size:12.5px;color:var(--slate)}
+  .alert .who b{color:var(--ink-2);font-weight:640}
+
+  /* Risk cards */
+  .riskgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+  .risk{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);
+    border-left:3px solid var(--line)}
+  .risk.critical{border-left-color:var(--critical)} .risk.high{border-left-color:var(--high)}
+  .risk.medium{border-left-color:var(--medium)} .risk.low{border-left-color:var(--low)}
+  .risk .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .risk h4{margin:0;font-size:16px;font-weight:660;flex:1;min-width:150px}
+  .risk p{margin:0 0 10px;font-size:14px;color:var(--ink-2);line-height:1.55}
+  .risk .meta{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0;font-size:12.5px}
+  .risk .meta span{color:var(--mute)} .risk .meta b{color:var(--ink-2);font-weight:640}
+  .risk .mit{background:var(--canvas);border-radius:8px;padding:11px 13px;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+  .risk .mit b{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);display:block;margin-bottom:3px}
+
+  /* Actions */
+  .action{display:grid;grid-template-columns:44px 1fr;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:11px;overflow:hidden;box-shadow:var(--shadow)}
+  .action .n{background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:17px;font-weight:700}
+  .action .body{padding:16px 18px}
+  .action h4{margin:0 0 6px;font-size:16px;font-weight:650;line-height:1.4}
+  .action p{margin:0 0 11px;font-size:14px;color:var(--slate);line-height:1.55}
+  .action .tags{display:flex;flex-wrap:wrap;gap:8px}
+  .tag{font-size:12px;background:var(--line-2);border:1px solid var(--line);border-radius:7px;padding:4px 10px;color:var(--slate)}
+  .tag b{color:var(--ink-2);font-weight:640}
+  .action .to{margin-top:11px;font-size:13px;color:var(--slate);border-left:2px solid var(--line);padding-left:11px}
+
+  /* Next steps */
+  .steps{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .step{display:grid;grid-template-columns:128px 1fr 150px;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line-2);
+    font-size:14px;align-items:baseline}
+  .step:last-child{border-bottom:0}
+  .step .w{font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;color:var(--brand-2)}
+  .step .o{text-align:right;color:var(--slate);font-size:13px}
+
+  /* Notes */
+  .notes{background:#FBFCFE;border:1px dashed var(--line);border-radius:12px;padding:16px 20px}
+  .notes h3{margin:0 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);font-weight:700}
+  .notes ul{margin:0;padding-left:19px} .notes li{font-size:13.5px;color:var(--slate);margin-bottom:5px;line-height:1.55}
+
+  /* Charts */
+  .chart{width:100%;display:block;overflow:visible}
+  .chart text{font-family:inherit;font-variant-numeric:tabular-nums}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--slate)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--mute);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+  @media (max-width:720px){
+    .wrap{padding:0 16px 48px}
+    .mast-title{font-size:23px}
+    .alert{grid-template-columns:1fr} .alert .sev{flex-direction:row;align-items:center;border-right:0;border-bottom:1px solid var(--line-2)}
+    .step{grid-template-columns:1fr;gap:4px} .step .o{text-align:left}
+    .action{grid-template-columns:1fr} .action .n{padding:6px;font-size:14px}
+  }
+  @media print{
+    body{background:#fff} .masthead{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .card,.kpi,.alert,.risk,.action,.steps,.arstrip,.tbl-wrap{box-shadow:none}
+    section{break-inside:avoid} .alert,.risk,.action{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function(){
+  const D = (typeof DATA !== 'undefined' && DATA) ? DATA : (window.DATA || {});
+  const el = document.getElementById('app');
+  const has = v => v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const sev = s => ['critical','high','medium','low','ok'].includes(String(s||'').toLowerCase())
+    ? String(s).toLowerCase() : 'plain';
+  const pill = s => `<span class="pill ${sev(s)}">${esc(s||'')}</span>`;
+  const fmt = n => {
+    if (typeof n !== 'number') return esc(n);
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n/1e9).toFixed(2).replace(/\.00$/,'') + 'B';
+    if (a >= 1e6) return (n/1e6).toFixed(2).replace(/\.00$/,'') + 'M';
+    if (a >= 1e3) return Math.round(n/1e3) + 'k';
+    return String(Math.round(n));
+  };
+  const SEVC = {critical:'#B3261E',high:'#B45309',medium:'#C09A2E',low:'#6E9B33',ok:'#0F6B4F',plain:'#8A99AD'};
+  let out = '';
+
+  /* ---------- Masthead ---------- */
+  const m = D.meta || {};
+  out += `<header class="masthead"><div class="wrap">
+    <div class="mast-eyebrow">CFO Review</div>
+    <h1 class="mast-title">${esc(m.company||'CFO Review')}</h1>
+    ${has(m.subtitle)?`<p class="mast-sub">${esc(m.subtitle)}</p>`:''}
+    <div class="mast-meta">
+      ${has(m.period)?`<div>Period<strong>${esc(m.period)}</strong></div>`:''}
+      ${has(m.asOf)?`<div>As at<strong>${esc(m.asOf)}</strong></div>`:''}
+      ${has(m.currency)?`<div>Currency<strong>${esc(m.currency)}</strong></div>`:''}
+      ${has(m.preparedFor)?`<div>Prepared for<strong>${esc(m.preparedFor)}</strong></div>`:''}
+      ${has(m.preparedBy)?`<div>Prepared by<strong>${esc(m.preparedBy)}</strong></div>`:''}
+    </div></div></header><div class="wrap">`;
+
+  const secHead = t => `<div class="sec-head"><h2>${esc(t)}</h2><div class="rule"></div></div>`;
+
+  /* ---------- 1. Executive Summary ---------- */
+  const h = D.headline || {};
+  if (has(h.verdict) || has(h.summary)) {
+    const p = sev(h.posture || 'medium');
+    const lbl = {critical:'Immediate action required',high:'Action required',
+                 medium:'Attention needed',low:'Monitor',ok:'Position stable',plain:'Review'}[p];
+    out += `<section>${secHead('Executive Summary')}
+      <div class="verdict ${p}">
+        <div class="verdict-label">${lbl}</div>
+        ${has(h.verdict)?`<h3>${esc(h.verdict)}</h3>`:''}
+        ${has(h.summary)?`<div class="summary">${(h.summary||[]).map(x=>`<p>${esc(x)}</p>`).join('')}</div>`:''}
+        ${has(h.callouts)?`<div class="callouts">${h.callouts.map(c=>
+          `<div class="callout"><div class="k">${esc(c.label)}</div><div class="v">${esc(c.value)}</div></div>`).join('')}</div>`:''}
+      </div></section>`;
+  }
+
+  /* ---------- 2. Executive KPI Summary ---------- */
+  if (has(D.kpis)) {
+    out += `<section>${secHead('Executive KPI Summary')}<div class="kpis">` +
+      D.kpis.map(k=>{
+        const dir = k.trend==='up'?'▲':k.trend==='down'?'▼':'–';
+        const cls = k.good===true?'good':k.good===false?'bad':'neutral';
+        return `<div class="kpi ${sev(k.severity)}">
+          <div class="k">${esc(k.label)}</div>
+          <div class="v num">${esc(k.value)}</div>
+          ${has(k.delta)?`<div class="d ${cls}">${dir} ${esc(k.delta)}</div>`:''}
+          ${has(k.note)?`<div class="n">${esc(k.note)}</div>`:''}</div>`;
+      }).join('') + `</div></section>`;
+  }
+
+  /* ---------- 3. A/R Overview ---------- */
+  const ar = D.ar || {};
+  if (has(ar.total) || has(ar.dso) || has(ar.buckets)) {
+    out += `<section>${secHead('Accounts Receivable Overview')}`;
+    if (has(ar.commentary)) out += `<p class="sec-note">${esc(ar.commentary)}</p>`;
+    const cells = [
+      ['Total receivables', ar.total, ''],
+      ['Current',           ar.current, ''],
+      ['Past due',          ar.overdue, ''],
+      ['DSO',               ar.dso, has(ar.dsoPrior)?`Prior: ${ar.dsoPrior}`:''],
+      ['Target DSO',        ar.dsoTarget, '']
+    ].filter(c=>has(c[1]));
+    if (cells.length) out += `<div class="arstrip">` + cells.map(c=>
+      `<div><div class="k">${esc(c[0])}</div><div class="v num">${esc(c[1])}</div>
+       ${has(c[2])?`<div class="s num">${esc(c[2])}</div>`:''}</div>`).join('') + `</div>`;
+    out += `</section>`;
+  }
+
+  /* ---------- 4. Aging Analysis ---------- */
+  if (has(ar.buckets)) {
+    const b = ar.buckets, tot = b.reduce((s,x)=>s+(+x.amount||0),0) || 1;
+    const W = 1000, BH = 46, GAP = 12, LW = 92, RW = 128;
+    const H = b.length*(BH+GAP);
+    let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Accounts receivable aging">`;
+    b.forEach((x,i)=>{
+      const y = i*(BH+GAP), pct = (+x.amount||0)/tot, bw = Math.max(2,(W-LW-RW)*pct);
+      const c = SEVC[sev(x.severity)];
+      svg += `<text x="0" y="${y+BH/2+5}" font-size="14" font-weight="600" fill="#1F2C40">${esc(x.label)}</text>`;
+      svg += `<rect x="${LW}" y="${y+6}" width="${W-LW-RW}" height="${BH-12}" rx="5" fill="#EEF2F7"/>`;
+      svg += `<rect x="${LW}" y="${y+6}" width="${bw}" height="${BH-12}" rx="5" fill="${c}"/>`;
+      svg += `<text x="${W-RW+14}" y="${y+BH/2+1}" font-size="14.5" font-weight="680" fill="#0E1726">${esc(fmt(+x.amount||x.amount))}</text>`;
+      svg += `<text x="${W-RW+14}" y="${y+BH/2+17}" font-size="12" fill="#8A99AD">${(pct*100).toFixed(1)}%${has(x.count)?` · ${esc(x.count)} inv`:''}</text>`;
+    });
+    svg += `</svg>`;
+    out += `<section>${secHead('Aging Analysis')}`;
+    if (has(ar.agingCommentary)) out += `<p class="sec-note">${esc(ar.agingCommentary)}</p>`;
+    out += `<div class="card pad">${svg}
+      <div class="legend">${['ok','low','medium','high','critical'].map(s=>
+        `<span><i style="background:${SEVC[s]}"></i>${({ok:'Current',low:'Early',medium:'Watch',high:'At risk',critical:'Impairment risk'})[s]}</span>`).join('')}</div>
+      </div></section>`;
+  }
+
+  /* ---------- 4b. Concentration ---------- */
+  const con = D.concentration || {};
+  if (has(con.items)) {
+    const it = con.items, mx = Math.max(...it.map(x=>+x.pct||0), con.threshold||0) * 1.15 || 1;
+    const W=1000, BH=34, GAP=9, LW=210, RW=70, H=it.length*(BH+GAP);
+    let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Concentration">`;
+    if (has(con.threshold)) {
+      const tx = LW + (W-LW-RW)*((+con.threshold)/mx);
+      svg += `<line x1="${tx}" y1="0" x2="${tx}" y2="${H-GAP}" stroke="#B3261E" stroke-width="1.5" stroke-dasharray="4 4" opacity=".65"/>`;
+      svg += `<text x="${tx+6}" y="12" font-size="11" fill="#B3261E" font-weight="650">${esc(con.threshold)}% threshold</text>`;
+    }
+    it.forEach((x,i)=>{
+      const y=i*(BH+GAP), bw=Math.max(2,(W-LW-RW)*((+x.pct||0)/mx));
+      const over = (+x.pct||0) >= (con.threshold||Infinity);
+      svg += `<text x="0" y="${y+BH/2+5}" font-size="13.5" font-weight="600" fill="#1F2C40">${esc(x.name)}</text>`;
+      svg += `<rect x="${LW}" y="${y+5}" width="${bw}" height="${BH-10}" rx="4" fill="${over?SEVC.critical:'#2E5A9E'}"/>`;
+      svg += `<text x="${LW+bw+10}" y="${y+BH/2+5}" font-size="13" font-weight="670" fill="#0E1726">${(+x.pct||0).toFixed(1)}%</text>`;
+    });
+    svg += `</svg>`;
+    out += `<section>${secHead('Concentration')}`;
+    if (has(con.commentary)) out += `<p class="sec-note">${esc(con.commentary)}</p>`;
+    out += `<div class="card pad">${svg}</div></section>`;
+  }
+
+  /* ---------- 5. Customer Risk Rankings ---------- */
+  if (has(D.customerRisk)) {
+    out += `<section>${secHead('Customer Risk Rankings')}<div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Customer</th><th class="r">Exposure</th><th class="r">% Rev</th>
+      <th class="r">Days past due</th><th>Risk</th><th>Assessment and action</th></tr></thead><tbody>` +
+      D.customerRisk.map(c=>`<tr>
+        <td class="rank num">${esc(c.rank??'')}</td>
+        <td class="name">${esc(c.name)}</td>
+        <td class="r num">${esc(c.exposure??'')}</td>
+        <td class="r num">${esc(c.revenuePct??'')}</td>
+        <td class="r num">${esc(c.daysPastDue??'')}</td>
+        <td>${pill(c.tier)}</td>
+        <td>${esc(c.drivers??'')}${has(c.action)?`<span class="sub"><b>Action:</b> ${esc(c.action)}</span>`:''}</td>
+      </tr>`).join('') + `</tbody></table></div></section>`;
+  }
+
+  /* ---------- 6. Collection Priorities ---------- */
+  if (has(D.collections)) {
+    out += `<section>${secHead('Collection Priorities')}<div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Customer</th><th class="r">Amount</th><th class="r">Age</th>
+      <th>Recovery</th><th>Owner</th><th>By</th><th>Action</th></tr></thead><tbody>` +
+      D.collections.map(c=>`<tr>
+        <td class="rank num">${esc(c.priority??'')}</td>
+        <td class="name">${esc(c.customer)}</td>
+        <td class="r num">${esc(c.amount??'')}</td>
+        <td class="r num">${esc(c.age??'')}</td>
+        <td>${esc(c.likelihood??'')}</td>
+        <td>${esc(c.owner??'')}</td>
+        <td>${esc(c.dueBy??'')}</td>
+        <td>${esc(c.action??'')}</td>
+      </tr>`).join('') + `</tbody></table></div></section>`;
+  }
+
+  /* ---------- 7. Cash Collection Forecast ---------- */
+  const f = D.forecast || {};
+  if (has(f.series)) {
+    const s=f.series, mx=Math.max(...s.map(x=>(+x.expected||0)+(+x.atRisk||0)))||1;
+    const W=1000,H=290,PB=54,PL=60,PT=14, n=s.length, cw=(W-PL)/n, bw=Math.min(74,cw*0.56);
+    let svg=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash collection forecast">`;
+    for(let g=0;g<=4;g++){
+      const y=PT+(H-PT-PB)*(g/4), v=mx*(1-g/4);
+      svg+=`<line x1="${PL}" y1="${y}" x2="${W}" y2="${y}" stroke="#EEF2F7" stroke-width="1"/>`;
+      svg+=`<text x="${PL-10}" y="${y+4}" font-size="11.5" fill="#8A99AD" text-anchor="end">${fmt(v)}</text>`;
+    }
+    s.forEach((x,i)=>{
+      const cx=PL+cw*i+cw/2, e=+x.expected||0, r=+x.atRisk||0;
+      const eh=(H-PT-PB)*(e/mx), rh=(H-PT-PB)*(r/mx), base=H-PB;
+      svg+=`<rect x="${cx-bw/2}" y="${base-eh}" width="${bw}" height="${Math.max(0,eh)}" fill="#2E5A9E" rx="3"/>`;
+      if(r>0) svg+=`<rect x="${cx-bw/2}" y="${base-eh-rh}" width="${bw}" height="${Math.max(0,rh)}" fill="#E2B36B" rx="3"/>`;
+      svg+=`<text x="${cx}" y="${base-eh-rh-8}" font-size="12" font-weight="650" fill="#0E1726" text-anchor="middle">${fmt(e+r)}</text>`;
+      svg+=`<text x="${cx}" y="${base+20}" font-size="12" fill="#5A6B82" text-anchor="middle">${esc(x.label)}</text>`;
+    });
+    svg+=`<line x1="${PL}" y1="${H-PB}" x2="${W}" y2="${H-PB}" stroke="#E3E8EF" stroke-width="1.5"/></svg>`;
+    out += `<section>${secHead('Cash Collection Forecast')}`;
+    if (has(f.commentary)) out += `<p class="sec-note">${esc(f.commentary)}</p>`;
+    out += `<div class="card pad">
+      ${has(f.horizon)?`<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8A99AD;font-weight:650;margin-bottom:10px">${esc(f.horizon)}</div>`:''}
+      ${svg}
+      <div class="legend">
+        <span><i style="background:#2E5A9E"></i>Expected collection</span>
+        <span><i style="background:#E2B36B"></i>At risk</span>
+        ${has(f.totals&&f.totals.expected)?`<span style="margin-left:auto"><b style="color:#0E1726">Expected ${esc(f.totals.expected)}</b>${has(f.totals.atRisk)?` &nbsp;/&nbsp; at risk ${esc(f.totals.atRisk)}`:''}</span>`:''}
+      </div>
+      ${has(f.accuracyNote)?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid #EEF2F7;font-size:13px;color:#5A6B82">${esc(f.accuracyNote)}</div>`:''}
+    </div></section>`;
+  }
+
+  /* ---------- 8. CFO Alerts ---------- */
+  if (has(D.alerts)) {
+    out += `<section>${secHead('CFO Alerts')}` + D.alerts.map(a=>`
+      <div class="alert ${sev(a.severity)}">
+        <div class="sev">${pill(a.severity)}${has(a.timing)?`<span style="font-size:12px;color:#5A6B82;font-weight:600">${esc(a.timing)}</span>`:''}</div>
+        <div class="body">
+          <h4>${esc(a.title)}</h4>
+          <dl>
+            ${has(a.finding)?`<dt>Finding</dt><dd>${esc(a.finding)}</dd>`:''}
+            ${has(a.risk)?`<dt>Risk</dt><dd>${esc(a.risk)}</dd>`:''}
+            ${has(a.action)?`<dt>Action</dt><dd>${esc(a.action)}</dd>`:''}
+          </dl>
+          ${has(a.owner)?`<div class="who">Owner: <b>${esc(a.owner)}</b>${has(a.timing)?` &nbsp;·&nbsp; Due: <b>${esc(a.timing)}</b>`:''}</div>`:''}
+        </div></div>`).join('') + `</section>`;
+  }
+
+  /* ---------- 9. Key Business Risks ---------- */
+  if (has(D.risks)) {
+    out += `<section>${secHead('Key Business Risks')}<div class="riskgrid">` + D.risks.map(r=>`
+      <div class="risk ${sev(r.severity)}">
+        <div class="top"><h4>${esc(r.title)}</h4>${pill(r.severity)}</div>
+        ${has(r.category)?`<span class="pill plain">${esc(r.category)}</span>`:''}
+        <p style="margin-top:10px">${esc(r.description||'')}</p>
+        <div class="meta">
+          ${has(r.likelihood)?`<span>Likelihood <b>${esc(r.likelihood)}</b></span>`:''}
+          ${has(r.impact)?`<span>Impact <b>${esc(r.impact)}</b></span>`:''}
+        </div>
+        ${has(r.mitigation)?`<div class="mit"><b>Mitigation</b>${esc(r.mitigation)}</div>`:''}
+      </div>`).join('') + `</div></section>`;
+  }
+
+  /* ---------- 10. Recommended Actions ---------- */
+  if (has(D.actions)) {
+    out += `<section>${secHead('Recommended Actions')}` + D.actions.map((a,i)=>`
+      <div class="action">
+        <div class="n">${esc(a.rank??i+1)}</div>
+        <div class="body">
+          <h4>${esc(a.action)}</h4>
+          ${has(a.rationale)?`<p>${esc(a.rationale)}</p>`:''}
+          <div class="tags">
+            ${has(a.owner)?`<span class="tag">Owner <b>${esc(a.owner)}</b></span>`:''}
+            ${has(a.timing)?`<span class="tag">By <b>${esc(a.timing)}</b></span>`:''}
+            ${has(a.impact)?`<span class="tag">Impact <b>${esc(a.impact)}</b></span>`:''}
+            ${has(a.effort)?`<span class="tag">Effort <b>${esc(a.effort)}</b></span>`:''}
+          </div>
+          ${has(a.tradeoff)?`<div class="to"><b>Trade-off:</b> ${esc(a.tradeoff)}</div>`:''}
+        </div></div>`).join('') + `</section>`;
+  }
+
+  /* ---------- 11. Next Steps ---------- */
+  if (has(D.nextSteps)) {
+    out += `<section>${secHead('Next Steps')}<div class="steps">` + D.nextSteps.map(s=>`
+      <div class="step"><div class="w">${esc(s.when||'')}</div><div>${esc(s.item||'')}</div>
+      <div class="o">${esc(s.owner||'')}</div></div>`).join('') + `</div></section>`;
+  }
+
+  /* ---------- Data notes ---------- */
+  if (has(D.dataNotes)) {
+    out += `<section><div class="notes"><h3>Data gaps and caveats</h3><ul>` +
+      D.dataNotes.map(n=>`<li>${esc(n)}</li>`).join('') + `</ul></div></section>`;
+  }
+
+  out += `<footer><span>${esc(m.company||'')}${has(m.period)?` · ${esc(m.period)}`:''}</span>
+    <span>CFO review of previously completed analysis. Figures as presented in source reporting.</span></footer></div>`;
+
+  el.innerHTML = out;
+  if (has(m.company)) document.title = `CFO Review - ${m.company}${has(m.period)?` - ${m.period}`:''}`;
+})();
+</script>
+</body>
+</html>

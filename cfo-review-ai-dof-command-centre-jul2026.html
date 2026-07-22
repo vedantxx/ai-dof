@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CFO Review</title>
+<script>
+/* ============================================================================
+   FILL THIS OBJECT. DO NOT EDIT ANYTHING BELOW THE "RENDER ENGINE" MARKER.
+
+   Any section left as an empty array, empty string, or null is hidden
+   automatically. Leave a section empty when the source data does not
+   support it - never invent content to fill it.
+
+   Severity values are always one of: "critical", "high", "medium", "low".
+   Use "ok" for a positive/all-clear state.
+   ============================================================================ */
+const DATA = {
+  meta: {
+    company: "AI DOF Command Centre",
+    subtitle: "Accounts receivable and collections review — source: Invoices & Customers (QuickBooks)",
+    period: "Open receivables as at 22 July 2026",
+    asOf: "22 July 2026",
+    currency: "USD",
+    preparedFor: "CEO and Board",
+    preparedBy: "Office of the CFO"
+  },
+
+  headline: {
+    posture: "critical",
+    verdict: "The collection forecast books every dollar of already-overdue recovery into the next seven days. $2.12M of the $2.35M seven-day figure is money that is already late — and twenty of those invoices average 369 days overdue.",
+    summary: [
+      "This is the finding that matters, because it is the one a cash decision would be made on. The forecast applies a single blended 54.16% recovery probability to the entire $3.92M overdue book and places the result in the 0–7 day window. Invoices sitting 369 days past due do not collect at half their value inside a week. The 30-day and 60-day figures inherit the same assumption, so the whole curve is front-loaded. Treat the seven-day number as unusable until it is rebuilt with age-banded probabilities and realistic timing.",
+      "Underneath the forecast, two things in the receivables book need action rather than monitoring. Halcyon Beverage has $309k sitting between 136 and 604 days unpaid, and was issued two new invoices in May and June 2026 worth $141k — the account is being extended credit while it is not paying. Global Retail Partners' entire $264k balance sits in two invoices at 521 and 622 days. Neither situation is a collections problem any longer.",
+      "The risk model itself needs attention. It reports zero customers in the Critical band while $1.36M sits at an average of 369 days overdue, and it ranks by balance rather than behaviour — so Silverline Appliances, which historically paid in 17 days and now has four invoices averaging 191 days overdue, is rated Low. Behaviour change is the strongest predictor of non-payment in a receivables book, and this model does not see it."
+    ],
+    callouts: [
+      { label: "7-day forecast overstated by", value: "up to $2.1M" },
+      { label: "Open book past due",           value: "79%" },
+      { label: "Aged 90+ days",                value: "$1.36M" },
+      { label: "Actions this week",            value: "4" }
+    ]
+  },
+
+  kpis: [
+    { label: "Total receivables", value: "$4.98M", delta: "64 open invoices", trend: "flat", good: false, severity: "high",
+      note: "Against a $3.0M internal limit — the pack's own threshold is breached by 66%." },
+    { label: "Past due", value: "$3.92M", delta: "79% of open book", trend: "up", good: false, severity: "critical",
+      note: "Derived. Four dollars in five of the open book are already late. That is not a collections backlog, it is the normal state." },
+    { label: "Aged 90+ days", value: "$1.36M", delta: "20 invoices, avg 369 days", trend: "up", good: false, severity: "critical",
+      note: "Average age over a year. This is a write-off decision wearing a collections label." },
+    { label: "7-day expected collections", value: "$2.35M", delta: "$2.12M of it already overdue", trend: "flat", good: false, severity: "critical",
+      note: "Do not plan against this figure. See alerts." },
+    { label: "Largest single exposure", value: "$717,817", delta: "14.4% of receivables", trend: "up", good: false, severity: "high",
+      note: "Vantage Consumer Brands. Above the conventional 10% concentration threshold; the pack's own alert is set at 20% so it never fired." },
+    { label: "Oldest overdue invoice", value: "676 days", delta: "$57,878", trend: "flat", good: false, severity: "high",
+      note: "Summit Medical Supply, invoice 1639, dated July 2024. Still carried at full value." },
+    { label: "Cumulative collection rate", value: "88.4%", delta: "$37.85M of $42.84M", trend: "flat", good: true, severity: "medium",
+      note: "Healthy-looking, but it is a 24-month cumulative figure. It tells you nothing about the current book and should not reassure anyone." },
+    { label: "Avg age of open invoices", value: "123 days", delta: "source metric", trend: "up", good: false, severity: "high",
+      note: "Labelled 'Average Days Outstanding' in the pack. It is the mean age of open items, not DSO — not comparable to a DSO target." }
+  ],
+
+  ar: {
+    total: "$4.98M",
+    current: "$1.06M",
+    overdue: "$3.92M",
+    dso: "123 days",
+    commentary: "Only 21% of the open book is current. The pack's own receivables limit is $3.0M and the balance is $4.98M, so the business is carrying roughly $2.0M more in customer credit than its stated policy allows (derived). No bad debt provision appears anywhere in this pack, which means the adequacy of reserving against the aged book cannot be assessed at all.",
+    buckets: [
+      { label: "Current",   amount: 1063698.99, count: 13, severity: "ok" },
+      { label: "1–30 days", amount: 1574493.21, count: 22, severity: "low" },
+      { label: "31–60 days",amount:  984514.82, count:  9, severity: "medium" },
+      { label: "61–90 days",amount:       0.00, count:  0, severity: "medium" },
+      { label: "90+ days",  amount: 1359576.46, count: 20, severity: "critical" }
+    ],
+    agingCommentary: "Two things stand out. First, the 61–90 bucket is exactly zero across 64 open invoices while the buckets either side hold $985k and $1.36M — a genuinely empty band is possible but improbable, and this should be checked before the aging is relied on. Second, the 90+ bucket averages 369 days overdue, not 90-something. Grouping a 91-day invoice with a 676-day one under a single label conceals the fact that most of this bucket is not aging, it has already failed."
+  },
+
+  concentration: {
+    commentary: "Share of total open receivables, per the risk ranking tab. The pack's concentration alert is set at 20%, so nothing here triggered it — but 14.4% in a single name is above the conventional 10% threshold, and the second-largest name is the one with the worst payment behaviour in the book.",
+    threshold: 10,
+    items: [
+      { name: "Vantage Consumer Brands", pct: 14.41 },
+      { name: "Halcyon Beverage Co",     pct: 9.05 },
+      { name: "Solstice Home Goods",     pct: 7.24 },
+      { name: "Meadowvale Farms",        pct: 5.59 },
+      { name: "Global Retail Partners",  pct: 5.30 },
+      { name: "Polaris Cold Chain",      pct: 4.90 },
+      { name: "Willow Creek Furniture",  pct: 4.90 }
+    ]
+  },
+
+  customerRisk: [
+    { rank: 1, name: "Halcyon Beverage Co", exposure: "$450,749", revenuePct: "", daysPastDue: "258 avg",
+      tier: "critical",
+      drivers: "All six open invoices are overdue. $309k sits between 136 and 604 days — and two fresh invoices worth $141k were issued in May and June 2026 (derived from the overdue monitor). The account is receiving credit while not paying.",
+      action: "Immediate credit hold. Controller and VP Sales to obtain a written payment plan on the aged $309k within 14 days or begin recovery." },
+
+    { rank: 2, name: "Global Retail Partners", exposure: "$263,946", revenuePct: "5.1%", daysPastDue: "571 avg",
+      tier: "critical",
+      drivers: "The entire balance is two invoices at 521 and 622 days. No partial payments, no recent activity. The source model rates this High.",
+      action: "Not a collections case. Recovery or write-off decision to the CFO within 30 days." },
+
+    { rank: 3, name: "Meadowvale Farms", exposure: "$278,642", revenuePct: "", daysPastDue: "290 avg",
+      tier: "critical",
+      drivers: "Four of five open invoices overdue, three of them beyond 400 days ($61k, $53k and $66k). Historic payment behaviour was 60 days.",
+      action: "Credit hold and executive contact this week; assume impairment on the pre-2026 balances." },
+
+    { rank: 4, name: "Summit Medical Supply", exposure: "$204,457", revenuePct: "", daysPastDue: "343 avg",
+      tier: "critical",
+      drivers: "Holds the oldest invoice in the book at 676 days. Historic days-to-pay of 69.8 was already the slowest in the top ten.",
+      action: "Controller to reconcile the 676-day item — confirm it is a real receivable and not an unresolved dispute or billing error." },
+
+    { rank: 5, name: "Vantage Consumer Brands", exposure: "$717,817", revenuePct: "10.3%", daysPastDue: "43.5 avg",
+      tier: "high",
+      drivers: "Largest exposure in the book at 14.4% of receivables, but the balance is recent — two invoices at 28 and 59 days. This is a concentration risk, not yet a credit risk.",
+      action: "Weekly contact until the $528k of recent balances clears. Review the credit limit before the next order." },
+
+    { rank: 6, name: "Silverline Appliances", exposure: "$122,654", revenuePct: "", daysPastDue: "191.5 avg",
+      tier: "high",
+      drivers: "The sharpest behavioural break in the book: historic days-to-pay 17.2, now four invoices all overdue averaging 191 days. The source model rates this Low because the balance is small.",
+      action: "Treat as a distress signal, not a small balance. Controller to establish whether this customer is still solvent within 14 days." },
+
+    { rank: 7, name: "Solstice Home Goods", exposure: "$360,886", revenuePct: "", daysPastDue: "18 avg",
+      tier: "medium",
+      drivers: "Third-largest exposure but the youngest of the large balances — two invoices at 33 and 3 days overdue.",
+      action: "Standard follow-up. High-yield collection target, not a risk case." }
+  ],
+
+  collections: [
+    { priority: 1, customer: "Vantage Consumer Brands", amount: "$528,261", age: "28 and 59 days", likelihood: "High",
+      owner: "Controller", dueBy: "14 days",
+      action: "Two recent invoices, largest balances in the book, no disputes recorded. Fastest cash available anywhere on this page." },
+
+    { priority: 2, customer: "Solstice Home Goods", amount: "$282,037", age: "3 and 33 days", likelihood: "High",
+      owner: "Collections", dueBy: "21 days",
+      action: "Recent, undisputed, solvent. Straightforward chase." },
+
+    { priority: 3, customer: "Perigee Aerospace Parts", amount: "$209,239", age: "19 days", likelihood: "High",
+      owner: "Collections", dueBy: "14 days",
+      action: "Single large recent invoice. One call." },
+
+    { priority: 4, customer: "Northline Grocers Co-op", amount: "$143,017", age: "32 days", likelihood: "High",
+      owner: "Collections", dueBy: "21 days",
+      action: "Recent balance from a top-three revenue account. Chase without escalating." },
+
+    { priority: 5, customer: "Halcyon Beverage Co — recent portion", amount: "$141,397", age: "3 and 14 days", likelihood: "Moderate",
+      owner: "Controller", dueBy: "14 days",
+      action: "Collect the recent invoices while the credit hold is placed on the account. Do not net these against the aged balance." },
+
+    { priority: 6, customer: "Halcyon, Meadowvale, GRP — aged balances", amount: "$883k combined", age: "136–622 days", likelihood: "Low",
+      owner: "CFO", dueBy: "30 days",
+      action: "Executive escalation, then a recovery-or-write-off decision. Routine collections effort here has already failed and will keep failing." },
+
+    { priority: 7, customer: "Remaining 90+ book", amount: "~$476k", age: "avg 369 days", likelihood: "Doubtful",
+      owner: "Controller", dueBy: "30 days",
+      action: "Assess for write-off. Derived as the 90+ balance less the three names above. Effort is better spent on priorities 1–4." }
+  ],
+
+  forecast: {
+    horizon: "Open invoices by due-date bucket, as modelled in the source pack",
+    commentary: "Shown exactly as the source calculated it. The 'expected' portion uses the pack's own collection probabilities; 'at risk' is the residual (derived). The problem is not primarily the probabilities — it is that the entire already-overdue recovery is booked into the 0–7 day window, which is what produces the $2.35M seven-day figure.",
+    accuracyNote: "There is no back-test in this pack. The 54.16% probability applied to the overdue book has no stated basis, and it is applied uniformly to invoices ranging from 2 days to 676 days past due. No forecast should be presented to a board without either an age-banded assumption or a stated historical accuracy — and this one has neither.",
+    series: [
+      { label: "Already overdue", expected: 2122218.75, atRisk: 1796365.74 },
+      { label: "Due 0–7 days",    expected:  226073.56, atRisk:   11898.61 },
+      { label: "Due 8–30 days",   expected:  689644.90, atRisk:   76627.21 },
+      { label: "Due 31–60 days",  expected:   50536.50, atRisk:    8918.21 }
+    ],
+    totals: { expected: "$3.09M", atRisk: "$1.89M" }
+  },
+
+  alerts: [
+    { severity: "critical",
+      title: "Seven-day cash forecast is not usable",
+      finding: "$2.12M of the $2.35M expected in the next 7 days is already-overdue balance, recovered at a blended 54.16% and booked entirely into that window. Twenty of those invoices average 369 days overdue.",
+      risk: "Liquidity. Any decision taken against this number — a payment run, a drawdown deferral, a hiring commitment — is being made against cash that will not arrive. The 30-day and 60-day figures carry the same error.",
+      action: "Rebuild the forecast with age-banded probabilities and realistic collection timing before it is used for anything. Until then, plan against the $1.06M current balance plus the sub-35-day overdue items.",
+      owner: "CFO", timing: "This week" },
+
+    { severity: "critical",
+      title: "A customer 604 days in arrears is still being invoiced",
+      finding: "Halcyon Beverage Co holds $309k across four invoices aged 136 to 604 days, and was issued two further invoices in May and June 2026 totalling $141k (derived from the overdue monitor).",
+      risk: "Credit and control. The exposure grew while the account was demonstrably not paying, which means no credit hold mechanism is operating. Whatever failed here is not specific to this customer.",
+      action: "Credit hold today. Then establish who can approve an order against an aged balance, and require CFO sign-off above 90 days.",
+      owner: "Controller / VP Sales", timing: "This week" },
+
+    { severity: "critical",
+      title: "Risk model reports zero Critical customers against $1.36M at 369 days",
+      finding: "The ranking places no customer in the Critical band. Global Retail Partners — $264k, both invoices beyond 500 days — is rated High at 58.3.",
+      risk: "Reporting. A model that cannot flag a 622-day balance as critical will not flag the next one either, and its output is currently being read as an all-clear.",
+      action: "Recalibrate the bands so any balance beyond 180 days is Critical regardless of score. Re-run and re-issue.",
+      owner: "FP&A", timing: "This week" },
+
+    { severity: "high",
+      title: "Risk scoring ignores payment-behaviour breakdown",
+      finding: "Silverline Appliances (historic 17.2 days to pay, now 191.5 days overdue), Lumina Cosmetics (17.9 to 214) and Trailhead Outdoor Gear (35.8 to 299.5) are all rated Low because their balances are small.",
+      risk: "Credit. Change in payment behaviour is the earliest reliable signal of customer distress, and the model weights it below balance size — so it systematically misses the accounts that are about to fail.",
+      action: "Add a behaviour-delta term: current days overdue relative to that customer's own payment history, weighted at least equally with balance.",
+      owner: "FP&A", timing: "30 days" },
+
+    { severity: "medium",
+      title: "Aging bucket 61–90 days is empty",
+      finding: "$0.00 across 0 invoices, between $985k at 31–60 and $1.36M at 90+, in a book of 64 open invoices.",
+      risk: "Reporting. Possible but improbable. If it is a boundary error in the bucketing logic, the 90+ figure is overstated and the aging profile the board is reading is wrong.",
+      action: "Verify the bucket boundaries against the raw invoice dates before this aging is presented again.",
+      owner: "FP&A", timing: "This week" },
+
+    { severity: "medium",
+      title: "Alert thresholds are set above anything that can occur",
+      finding: "Concentration alert set at 20% against an actual maximum of 14.4%. Minimum 30-day collection rate set at 20% against an actual 61%. Neither can fire. The alerts tab also states 11 customers exceed the $150k threshold but lists 5.",
+      risk: "Control. Thresholds that never trigger create false comfort, and an alert engine that is inconsistent with its own count invites the board to distrust the rest of the pack.",
+      action: "Reset concentration to 10%, set the collection-rate floor from actual history, and reconcile the customer count.",
+      owner: "CFO", timing: "This week" }
+  ],
+
+  risks: [
+    { title: "Near-term liquidity planned against overstated cash", category: "Liquidity", severity: "critical",
+      likelihood: "Occurring", impact: "up to $2.1M in the 7-day window",
+      description: "The forecast's front-loading means the business may be planning outflows against inflows that are years late or will never arrive. No cash balance or facility headroom was supplied, so it is not possible to say whether this is uncomfortable or dangerous.",
+      mitigation: "Rebuild the forecast, then re-run it against the actual cash position and facility headroom. Owner: CFO, this week." },
+
+    { title: "Aged book carries no visible provision", category: "Credit", severity: "critical",
+      likelihood: "Occurring", impact: "$1.36M at risk",
+      description: "$1.36M sits at an average of 369 days overdue and nothing in this pack shows a bad debt provision against it. If the reserve is materially below the aged balance, the loss is already incurred and simply not recognised.",
+      mitigation: "Produce the provision position and set a risk-based rate against the aged bands. Owner: Controller, before next close." },
+
+    { title: "No operating credit hold", category: "Control", severity: "critical",
+      likelihood: "Occurring", impact: "Unquantified, growing",
+      description: "Halcyon received $141k of new credit while $309k sat unpaid for up to 604 days. This is a process absence, not a judgment error, and it will repeat on other accounts until the mechanism exists.",
+      mitigation: "Automatic hold at 90 days past due, releasable only by CFO. Owner: Controller, this week." },
+
+    { title: "Customer concentration above threshold and unmonitored", category: "Concentration", severity: "high",
+      likelihood: "Likely", impact: "$717,817 single-name exposure",
+      description: "Vantage is 14.4% of receivables and 10.3% of revenue. The pack's alert is set at 20% so this has never been flagged, and the balance is the largest in the book.",
+      mitigation: "Reset the threshold to 10% and review the credit limit before the next order. Owner: CFO, this week." },
+
+    { title: "Risk model mis-calibrated in both directions", category: "Reporting", severity: "high",
+      likelihood: "Occurring", impact: "Decision quality",
+      description: "It rates a 622-day balance as High rather than Critical, and rates the book's sharpest behavioural deteriorations as Low. Both errors point the same way: toward under-reaction.",
+      mitigation: "Recalibrate bands and add a behaviour-delta term. Owner: FP&A, 30 days." },
+
+    { title: "Cluster of small accounts showing distress", category: "Credit", severity: "medium",
+      likelihood: "Possible", impact: "~$200k combined",
+      description: "Silverline, Lumina and Trailhead all historically paid inside 36 days and now average 191 to 300 days overdue. Individually immaterial; as a pattern it may indicate a segment or service issue rather than three unrelated coincidences.",
+      mitigation: "Check whether these accounts share a segment, service line or account manager before treating them separately. Owner: FP&A, 30 days." }
+  ],
+
+  actions: [
+    { rank: 1,
+      action: "Rebuild the collection forecast with age-banded probabilities and realistic timing before it is used for any cash decision.",
+      rationale: "It currently books the entire overdue recovery into the next seven days. Every downstream number in the pack inherits that error.",
+      owner: "CFO", timing: "This week", impact: "Removes up to $2.1M of phantom near-term cash", effort: "Low" },
+
+    { rank: 2,
+      action: "Place Halcyon Beverage Co on immediate credit hold and implement an automatic hold at 90 days past due across all accounts.",
+      rationale: "$141k of new credit was extended to an account 604 days in arrears. Without a mechanism this recurs.",
+      owner: "Controller / VP Sales", timing: "This week", impact: "Stops further exposure growth", effort: "Low",
+      tradeoff: "Holds cost revenue and strain relationships. Halcyon may take its business elsewhere — but on this evidence it is business the company is funding rather than earning." },
+
+    { rank: 3,
+      action: "Run the collections push on the four largest recent balances: Vantage, Solstice, Perigee and Northline.",
+      rationale: "Roughly $1.16M across eight invoices, all under 60 days, all from solvent accounts with no disputes recorded. This is the highest-yield effort available and it is not currently prioritised.",
+      owner: "Controller", timing: "From Monday", impact: "~$1.16M, realistically within 30 days", effort: "Medium" },
+
+    { rank: 4,
+      action: "Take a recovery-or-write-off decision on the 90+ book, starting with GRP, Meadowvale and the aged Halcyon balances.",
+      rationale: "$1.36M averaging 369 days overdue is not a collections pipeline. Carrying it at full value overstates both receivables and earnings.",
+      owner: "CFO", timing: "30 days", impact: "$1.36M correctly classified", effort: "Medium",
+      tradeoff: "Recognising the write-off reduces reported earnings this period. It is better taken deliberately now than discovered at audit." },
+
+    { rank: 5,
+      action: "Recalibrate the risk model: any balance beyond 180 days is Critical, and add a behaviour-delta term weighted at least equally with balance size.",
+      rationale: "The model currently reports zero Critical customers and rates the sharpest payment breakdowns as Low. It is producing false comfort.",
+      owner: "FP&A", timing: "30 days", impact: "Restores the early-warning function", effort: "Medium" },
+
+    { rank: 6,
+      action: "Reset the alert thresholds — concentration to 10%, collection-rate floor to a level derived from actual history — and reconcile the customer-count discrepancy.",
+      rationale: "Thresholds that cannot fire are worse than no thresholds, because they read as an all-clear.",
+      owner: "CFO", timing: "This week", impact: "Alerts become informative", effort: "Low" },
+
+    { rank: 7,
+      action: "Verify the 61–90 day bucket logic and produce the bad debt provision position alongside the aging.",
+      rationale: "An empty bucket in the middle of the book is probably a boundary error, and an aging report without a provision beside it cannot support a reserving decision.",
+      owner: "FP&A / Controller", timing: "This week", impact: "Makes the aging trustworthy", effort: "Low" }
+  ],
+
+  nextSteps: [
+    { when: "This week",   item: "Forecast rebuilt and re-issued; Halcyon on credit hold; alert thresholds reset; 61–90 bucket verified.", owner: "CFO / Controller / FP&A" },
+    { when: "From Monday", item: "Collections cadence live on Vantage, Solstice, Perigee and Northline — roughly $1.16M in play.", owner: "Controller" },
+    { when: "14 days",     item: "Written payment commitments or recovery action on Halcyon, Meadowvale and Silverline.", owner: "Controller" },
+    { when: "30 days",     item: "Recovery-or-write-off decision on the 90+ book, brought with the provision position.", owner: "CFO" },
+    { when: "30 days",     item: "Risk model recalibrated and re-run; behaviour-delta term in place.", owner: "FP&A" },
+    { when: "Next review", item: "Cash balance, facility headroom and bad debt provision supplied so liquidity can actually be assessed.", owner: "CFO" }
+  ],
+
+  dataNotes: [
+    "No bad debt provision appears anywhere in the six tabs reviewed. Reserve adequacy against $1.36M of aged balance cannot be assessed, which blocks the write-off decision in action 4.",
+    "No cash balance, facility headroom or operating burn was supplied. It is therefore not possible to say whether the forecast overstatement is merely embarrassing or genuinely dangerous — that is the single most important missing input.",
+    "The collection probabilities (54.16% on overdue, 95% / 90% / 85% on future buckets) are model assumptions with no stated basis and no back-test. They drive every number in the forecast.",
+    "'Average Days Outstanding: 123' is the mean age of open invoices, not DSO. It is not comparable to a DSO target and should be relabelled.",
+    "Revenue concentration was only available for the top five customers, so the % of revenue column is populated only where the source provided it. Concentration percentages elsewhere are share of receivables.",
+    "The pack reports at consolidated level only. The underlying business operates through multiple entities, and entity-level aging would likely show this exposure is concentrated rather than spread — worth producing before the next review.",
+    "The alerts tab states 11 customers exceed the $150k threshold but names 5. The remaining 6 were not identifiable from the tabs reviewed.",
+    "Per instruction, the Raw_Data and underlying ledger tabs were not used. All figures are as presented in the six analytical tabs; anything I calculated from them is marked 'derived'."
+  ]
+};
+
+</script>
+
+<!-- ===================== RENDER ENGINE - DO NOT EDIT ===================== -->
+<style>
+  :root{
+    --ink:#0E1726; --ink-2:#1F2C40; --slate:#5A6B82; --mute:#8A99AD;
+    --line:#E3E8EF; --line-2:#EEF2F7; --canvas:#F6F8FB; --card:#FFFFFF;
+    --brand:#1B3A6B; --brand-2:#2E5A9E;
+    --critical:#B3261E; --critical-bg:#FDECEA;
+    --high:#B45309;     --high-bg:#FEF3E2;
+    --medium:#8A6D1F;   --medium-bg:#FBF5E3;
+    --low:#3F6212;      --low-bg:#F2F7E8;
+    --ok:#0F6B4F;       --ok-bg:#E8F5F0;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 14px rgba(16,24,40,.05);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--canvas); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Inter",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px 72px}
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+  /* Masthead */
+  .masthead{background:var(--brand);color:#fff;padding:34px 0 30px;margin-bottom:26px}
+  .masthead .wrap{padding-bottom:0}
+  .mast-eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#A9C0E0;font-weight:600}
+  .mast-title{font-size:30px;line-height:1.2;font-weight:680;margin:8px 0 4px;letter-spacing:-.015em}
+  .mast-sub{font-size:15px;color:#C6D6EC;margin:0}
+  .mast-meta{display:flex;flex-wrap:wrap;gap:0 34px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.16)}
+  .mast-meta div{font-size:12.5px;color:#C6D6EC}
+  .mast-meta strong{display:block;color:#fff;font-weight:600;font-size:13.5px;margin-top:2px}
+
+  /* Sections */
+  section{margin-bottom:34px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin:0 0 14px}
+  .sec-head h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);
+    font-weight:700;margin:0;white-space:nowrap}
+  .sec-head .rule{flex:1;height:1px;background:var(--line)}
+  .sec-note{font-size:14px;color:var(--slate);margin:0 0 14px;max-width:80ch}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+  .pad{padding:20px 22px}
+
+  /* Verdict banner */
+  .verdict{border-radius:14px;padding:24px 26px;border:1px solid;margin-bottom:8px}
+  .verdict.critical{background:var(--critical-bg);border-color:#F0C4BF}
+  .verdict.high{background:var(--high-bg);border-color:#F2DCB8}
+  .verdict.medium{background:var(--medium-bg);border-color:#EBDFB6}
+  .verdict.ok{background:var(--ok-bg);border-color:#BFE0D3}
+  .verdict-label{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:700;margin-bottom:9px}
+  .verdict.critical .verdict-label{color:var(--critical)}
+  .verdict.high .verdict-label{color:var(--high)}
+  .verdict.medium .verdict-label{color:var(--medium)}
+  .verdict.ok .verdict-label{color:var(--ok)}
+  .verdict h3{margin:0 0 4px;font-size:21px;line-height:1.35;font-weight:660;letter-spacing:-.01em}
+  .summary p{margin:12px 0 0;font-size:15.5px;line-height:1.62;color:var(--ink-2);max-width:88ch}
+  .callouts{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+  .callout{background:rgba(255,255,255,.75);border:1px solid rgba(0,0,0,.07);border-radius:9px;padding:9px 14px}
+  .callout .k{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .callout .v{font-size:19px;font-weight:680;letter-spacing:-.01em;margin-top:1px}
+
+  /* KPI cards */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:17px 18px;
+    box-shadow:var(--shadow);border-top:3px solid var(--line);position:relative}
+  .kpi.critical{border-top-color:var(--critical)} .kpi.high{border-top-color:var(--high)}
+  .kpi.medium{border-top-color:var(--medium)} .kpi.low{border-top-color:var(--low)}
+  .kpi.ok{border-top-color:var(--ok)}
+  .kpi .k{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .kpi .v{font-size:27px;font-weight:680;letter-spacing:-.02em;margin:5px 0 2px;line-height:1.15}
+  .kpi .d{font-size:13px;font-weight:620;display:inline-flex;align-items:center;gap:4px}
+  .kpi .d.good{color:var(--ok)} .kpi .d.bad{color:var(--critical)} .kpi .d.neutral{color:var(--slate)}
+  .kpi .n{font-size:13px;color:var(--slate);margin-top:9px;line-height:1.5}
+
+  /* Pills */
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;white-space:nowrap;border:1px solid transparent}
+  .pill.critical{background:var(--critical-bg);color:var(--critical);border-color:#F0C4BF}
+  .pill.high{background:var(--high-bg);color:var(--high);border-color:#F2DCB8}
+  .pill.medium{background:var(--medium-bg);color:var(--medium);border-color:#EBDFB6}
+  .pill.low{background:var(--low-bg);color:var(--low);border-color:#D9E7C4}
+  .pill.ok{background:var(--ok-bg);color:var(--ok);border-color:#BFE0D3}
+  .pill.plain{background:var(--line-2);color:var(--slate);border-color:var(--line)}
+
+  /* AR strip */
+  .arstrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .arstrip > div{padding:16px 18px;border-right:1px solid var(--line-2)}
+  .arstrip > div:last-child{border-right:0}
+  .arstrip .k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--slate);font-weight:650}
+  .arstrip .v{font-size:22px;font-weight:670;letter-spacing:-.015em;margin-top:3px}
+  .arstrip .s{font-size:12.5px;color:var(--mute);margin-top:2px}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  thead th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);font-weight:700;
+    text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);background:#FBFCFE;white-space:nowrap}
+  tbody td{padding:13px 14px;border-bottom:1px solid var(--line-2);vertical-align:top;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:0}
+  td.r,th.r{text-align:right}
+  td.rank{font-weight:700;color:var(--mute);width:34px}
+  td.name{font-weight:640;color:var(--ink);white-space:nowrap}
+  .sub{display:block;font-size:12.5px;color:var(--mute);font-weight:400;margin-top:2px;white-space:normal}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:var(--shadow)}
+
+  /* Alerts */
+  .alert{display:grid;grid-template-columns:112px 1fr;gap:0;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:11px;overflow:hidden;box-shadow:var(--shadow)}
+  .alert .sev{padding:17px 14px;display:flex;flex-direction:column;gap:7px;align-items:flex-start;border-right:1px solid var(--line-2)}
+  .alert.critical .sev{background:var(--critical-bg)} .alert.high .sev{background:var(--high-bg)}
+  .alert.medium .sev{background:var(--medium-bg)} .alert.low .sev{background:var(--low-bg)}
+  .alert.ok .sev{background:var(--ok-bg)}
+  .alert .body{padding:16px 18px}
+  .alert h4{margin:0 0 9px;font-size:16px;font-weight:660;letter-spacing:-.005em}
+  .alert dl{margin:0;display:grid;grid-template-columns:78px 1fr;gap:5px 12px;font-size:14px}
+  .alert dt{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);font-weight:700;padding-top:3px}
+  .alert dd{margin:0;color:var(--ink-2);line-height:1.5}
+  .alert .who{margin-top:11px;padding-top:10px;border-top:1px solid var(--line-2);font-size:12.5px;color:var(--slate)}
+  .alert .who b{color:var(--ink-2);font-weight:640}
+
+  /* Risk cards */
+  .riskgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+  .risk{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);
+    border-left:3px solid var(--line)}
+  .risk.critical{border-left-color:var(--critical)} .risk.high{border-left-color:var(--high)}
+  .risk.medium{border-left-color:var(--medium)} .risk.low{border-left-color:var(--low)}
+  .risk .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .risk h4{margin:0;font-size:16px;font-weight:660;flex:1;min-width:150px}
+  .risk p{margin:0 0 10px;font-size:14px;color:var(--ink-2);line-height:1.55}
+  .risk .meta{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0;font-size:12.5px}
+  .risk .meta span{color:var(--mute)} .risk .meta b{color:var(--ink-2);font-weight:640}
+  .risk .mit{background:var(--canvas);border-radius:8px;padding:11px 13px;font-size:13.5px;color:var(--ink-2);line-height:1.5}
+  .risk .mit b{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);display:block;margin-bottom:3px}
+
+  /* Actions */
+  .action{display:grid;grid-template-columns:44px 1fr;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;margin-bottom:11px;overflow:hidden;box-shadow:var(--shadow)}
+  .action .n{background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;
+    font-size:17px;font-weight:700}
+  .action .body{padding:16px 18px}
+  .action h4{margin:0 0 6px;font-size:16px;font-weight:650;line-height:1.4}
+  .action p{margin:0 0 11px;font-size:14px;color:var(--slate);line-height:1.55}
+  .action .tags{display:flex;flex-wrap:wrap;gap:8px}
+  .tag{font-size:12px;background:var(--line-2);border:1px solid var(--line);border-radius:7px;padding:4px 10px;color:var(--slate)}
+  .tag b{color:var(--ink-2);font-weight:640}
+  .action .to{margin-top:11px;font-size:13px;color:var(--slate);border-left:2px solid var(--line);padding-left:11px}
+
+  /* Next steps */
+  .steps{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .step{display:grid;grid-template-columns:128px 1fr 150px;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line-2);
+    font-size:14px;align-items:baseline}
+  .step:last-child{border-bottom:0}
+  .step .w{font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;color:var(--brand-2)}
+  .step .o{text-align:right;color:var(--slate);font-size:13px}
+
+  /* Notes */
+  .notes{background:#FBFCFE;border:1px dashed var(--line);border-radius:12px;padding:16px 20px}
+  .notes h3{margin:0 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate);font-weight:700}
+  .notes ul{margin:0;padding-left:19px} .notes li{font-size:13.5px;color:var(--slate);margin-bottom:5px;line-height:1.55}
+
+  /* Charts */
+  .chart{width:100%;display:block;overflow:visible}
+  .chart text{font-family:inherit;font-variant-numeric:tabular-nums}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--slate)}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--mute);
+    display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+  @media (max-width:720px){
+    .wrap{padding:0 16px 48px}
+    .mast-title{font-size:23px}
+    .alert{grid-template-columns:1fr} .alert .sev{flex-direction:row;align-items:center;border-right:0;border-bottom:1px solid var(--line-2)}
+    .step{grid-template-columns:1fr;gap:4px} .step .o{text-align:left}
+    .action{grid-template-columns:1fr} .action .n{padding:6px;font-size:14px}
+  }
+  @media print{
+    body{background:#fff} .masthead{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .card,.kpi,.alert,.risk,.action,.steps,.arstrip,.tbl-wrap{box-shadow:none}
+    section{break-inside:avoid} .alert,.risk,.action{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function(){
+  const D = (typeof DATA !== 'undefined' && DATA) ? DATA : (window.DATA || {});
+  const el = document.getElementById('app');
+  const has = v => v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const sev = s => ['critical','high','medium','low','ok'].includes(String(s||'').toLowerCase())
+    ? String(s).toLowerCase() : 'plain';
+  const pill = s => `<span class="pill ${sev(s)}">${esc(s||'')}</span>`;
+  const fmt = n => {
+    if (typeof n !== 'number') return esc(n);
+    const a = Math.abs(n);
+    if (a >= 1e9) return (n/1e9).toFixed(2).replace(/\.00$/,'') + 'B';
+    if (a >= 1e6) return (n/1e6).toFixed(2).replace(/\.00$/,'') + 'M';
+    if (a >= 1e3) return Math.round(n/1e3) + 'k';
+    return String(Math.round(n));
+  };
+  const SEVC = {critical:'#B3261E',high:'#B45309',medium:'#C09A2E',low:'#6E9B33',ok:'#0F6B4F',plain:'#8A99AD'};
+  let out = '';
+
+  /* ---------- Masthead ---------- */
+  const m = D.meta || {};
+  out += `<header class="masthead"><div class="wrap">
+    <div class="mast-eyebrow">CFO Review</div>
+    <h1 class="mast-title">${esc(m.company||'CFO Review')}</h1>
+    ${has(m.subtitle)?`<p class="mast-sub">${esc(m.subtitle)}</p>`:''}
+    <div class="mast-meta">
+      ${has(m.period)?`<div>Period<strong>${esc(m.period)}</strong></div>`:''}
+      ${has(m.asOf)?`<div>As at<strong>${esc(m.asOf)}</strong></div>`:''}
+      ${has(m.currency)?`<div>Currency<strong>${esc(m.currency)}</strong></div>`:''}
+      ${has(m.preparedFor)?`<div>Prepared for<strong>${esc(m.preparedFor)}</strong></div>`:''}
+      ${has(m.preparedBy)?`<div>Prepared by<strong>${esc(m.preparedBy)}</strong></div>`:''}
+    </div></div></header><div class="wrap">`;
+
+  const secHead = t => `<div class="sec-head"><h2>${esc(t)}</h2><div class="rule"></div></div>`;
+
+  /* ---------- 1. Executive Summary ---------- */
+  const h = D.headline || {};
+  if (has(h.verdict) || has(h.summary)) {
+    const p = sev(h.posture || 'medium');
+    const lbl = {critical:'Immediate action required',high:'Action required',
+                 medium:'Attention needed',low:'Monitor',ok:'Position stable',plain:'Review'}[p];
+    out += `<section>${secHead('Executive Summary')}
+      <div class="verdict ${p}">
+        <div class="verdict-label">${lbl}</div>
+        ${has(h.verdict)?`<h3>${esc(h.verdict)}</h3>`:''}
+        ${has(h.summary)?`<div class="summary">${(h.summary||[]).map(x=>`<p>${esc(x)}</p>`).join('')}</div>`:''}
+        ${has(h.callouts)?`<div class="callouts">${h.callouts.map(c=>
+          `<div class="callout"><div class="k">${esc(c.label)}</div><div class="v">${esc(c.value)}</div></div>`).join('')}</div>`:''}
+      </div></section>`;
+  }
+
+  /* ---------- 2. Executive KPI Summary ---------- */
+  if (has(D.kpis)) {
+    out += `<section>${secHead('Executive KPI Summary')}<div class="kpis">` +
+      D.kpis.map(k=>{
+        const dir = k.trend==='up'?'▲':k.trend==='down'?'▼':'–';
+        const cls = k.good===true?'good':k.good===false?'bad':'neutral';
+        return `<div class="kpi ${sev(k.severity)}">
+          <div class="k">${esc(k.label)}</div>
+          <div class="v num">${esc(k.value)}</div>
+          ${has(k.delta)?`<div class="d ${cls}">${dir} ${esc(k.delta)}</div>`:''}
+          ${has(k.note)?`<div class="n">${esc(k.note)}</div>`:''}</div>`;
+      }).join('') + `</div></section>`;
+  }
+
+  /* ---------- 3. A/R Overview ---------- */
+  const ar = D.ar || {};
+  if (has(ar.total) || has(ar.dso) || has(ar.buckets)) {
+    out += `<section>${secHead('Accounts Receivable Overview')}`;
+    if (has(ar.commentary)) out += `<p class="sec-note">${esc(ar.commentary)}</p>`;
+    const cells = [
+      ['Total receivables', ar.total, ''],
+      ['Current',           ar.current, ''],
+      ['Past due',          ar.overdue, ''],
+      ['DSO',               ar.dso, has(ar.dsoPrior)?`Prior: ${ar.dsoPrior}`:''],
+      ['Target DSO',        ar.dsoTarget, '']
+    ].filter(c=>has(c[1]));
+    if (cells.length) out += `<div class="arstrip">` + cells.map(c=>
+      `<div><div class="k">${esc(c[0])}</div><div class="v num">${esc(c[1])}</div>
+       ${has(c[2])?`<div class="s num">${esc(c[2])}</div>`:''}</div>`).join('') + `</div>`;
+    out += `</section>`;
+  }
+
+  /* ---------- 4. Aging Analysis ---------- */
+  if (has(ar.buckets)) {
+    const b = ar.buckets, tot = b.reduce((s,x)=>s+(+x.amount||0),0) || 1;
+    const W = 1000, BH = 46, GAP = 12, LW = 92, RW = 128;
+    const H = b.length*(BH+GAP);
+    let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Accounts receivable aging">`;
+    b.forEach((x,i)=>{
+      const y = i*(BH+GAP), pct = (+x.amount||0)/tot, bw = Math.max(2,(W-LW-RW)*pct);
+      const c = SEVC[sev(x.severity)];
+      svg += `<text x="0" y="${y+BH/2+5}" font-size="14" font-weight="600" fill="#1F2C40">${esc(x.label)}</text>`;
+      svg += `<rect x="${LW}" y="${y+6}" width="${W-LW-RW}" height="${BH-12}" rx="5" fill="#EEF2F7"/>`;
+      svg += `<rect x="${LW}" y="${y+6}" width="${bw}" height="${BH-12}" rx="5" fill="${c}"/>`;
+      svg += `<text x="${W-RW+14}" y="${y+BH/2+1}" font-size="14.5" font-weight="680" fill="#0E1726">${esc(fmt(+x.amount||x.amount))}</text>`;
+      svg += `<text x="${W-RW+14}" y="${y+BH/2+17}" font-size="12" fill="#8A99AD">${(pct*100).toFixed(1)}%${has(x.count)?` · ${esc(x.count)} inv`:''}</text>`;
+    });
+    svg += `</svg>`;
+    out += `<section>${secHead('Aging Analysis')}`;
+    if (has(ar.agingCommentary)) out += `<p class="sec-note">${esc(ar.agingCommentary)}</p>`;
+    out += `<div class="card pad">${svg}
+      <div class="legend">${['ok','low','medium','high','critical'].map(s=>
+        `<span><i style="background:${SEVC[s]}"></i>${({ok:'Current',low:'Early',medium:'Watch',high:'At risk',critical:'Impairment risk'})[s]}</span>`).join('')}</div>
+      </div></section>`;
+  }
+
+  /* ---------- 4b. Concentration ---------- */
+  const con = D.concentration || {};
+  if (has(con.items)) {
+    const it = con.items, mx = Math.max(...it.map(x=>+x.pct||0), con.threshold||0) * 1.15 || 1;
+    const W=1000, BH=34, GAP=9, LW=210, RW=70, H=it.length*(BH+GAP);
+    let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Concentration">`;
+    if (has(con.threshold)) {
+      const tx = LW + (W-LW-RW)*((+con.threshold)/mx);
+      svg += `<line x1="${tx}" y1="0" x2="${tx}" y2="${H-GAP}" stroke="#B3261E" stroke-width="1.5" stroke-dasharray="4 4" opacity=".65"/>`;
+      svg += `<text x="${tx+6}" y="12" font-size="11" fill="#B3261E" font-weight="650">${esc(con.threshold)}% threshold</text>`;
+    }
+    it.forEach((x,i)=>{
+      const y=i*(BH+GAP), bw=Math.max(2,(W-LW-RW)*((+x.pct||0)/mx));
+      const over = (+x.pct||0) >= (con.threshold||Infinity);
+      svg += `<text x="0" y="${y+BH/2+5}" font-size="13.5" font-weight="600" fill="#1F2C40">${esc(x.name)}</text>`;
+      svg += `<rect x="${LW}" y="${y+5}" width="${bw}" height="${BH-10}" rx="4" fill="${over?SEVC.critical:'#2E5A9E'}"/>`;
+      svg += `<text x="${LW+bw+10}" y="${y+BH/2+5}" font-size="13" font-weight="670" fill="#0E1726">${(+x.pct||0).toFixed(1)}%</text>`;
+    });
+    svg += `</svg>`;
+    out += `<section>${secHead('Concentration')}`;
+    if (has(con.commentary)) out += `<p class="sec-note">${esc(con.commentary)}</p>`;
+    out += `<div class="card pad">${svg}</div></section>`;
+  }
+
+  /* ---------- 5. Customer Risk Rankings ---------- */
+  if (has(D.customerRisk)) {
+    out += `<section>${secHead('Customer Risk Rankings')}<div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Customer</th><th class="r">Exposure</th><th class="r">% Rev</th>
+      <th class="r">Days past due</th><th>Risk</th><th>Assessment and action</th></tr></thead><tbody>` +
+      D.customerRisk.map(c=>`<tr>
+        <td class="rank num">${esc(c.rank??'')}</td>
+        <td class="name">${esc(c.name)}</td>
+        <td class="r num">${esc(c.exposure??'')}</td>
+        <td class="r num">${esc(c.revenuePct??'')}</td>
+        <td class="r num">${esc(c.daysPastDue??'')}</td>
+        <td>${pill(c.tier)}</td>
+        <td>${esc(c.drivers??'')}${has(c.action)?`<span class="sub"><b>Action:</b> ${esc(c.action)}</span>`:''}</td>
+      </tr>`).join('') + `</tbody></table></div></section>`;
+  }
+
+  /* ---------- 6. Collection Priorities ---------- */
+  if (has(D.collections)) {
+    out += `<section>${secHead('Collection Priorities')}<div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Customer</th><th class="r">Amount</th><th class="r">Age</th>
+      <th>Recovery</th><th>Owner</th><th>By</th><th>Action</th></tr></thead><tbody>` +
+      D.collections.map(c=>`<tr>
+        <td class="rank num">${esc(c.priority??'')}</td>
+        <td class="name">${esc(c.customer)}</td>
+        <td class="r num">${esc(c.amount??'')}</td>
+        <td class="r num">${esc(c.age??'')}</td>
+        <td>${esc(c.likelihood??'')}</td>
+        <td>${esc(c.owner??'')}</td>
+        <td>${esc(c.dueBy??'')}</td>
+        <td>${esc(c.action??'')}</td>
+      </tr>`).join('') + `</tbody></table></div></section>`;
+  }
+
+  /* ---------- 7. Cash Collection Forecast ---------- */
+  const f = D.forecast || {};
+  if (has(f.series)) {
+    const s=f.series, mx=Math.max(...s.map(x=>(+x.expected||0)+(+x.atRisk||0)))||1;
+    const W=1000,H=290,PB=54,PL=60,PT=14, n=s.length, cw=(W-PL)/n, bw=Math.min(74,cw*0.56);
+    let svg=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash collection forecast">`;
+    for(let g=0;g<=4;g++){
+      const y=PT+(H-PT-PB)*(g/4), v=mx*(1-g/4);
+      svg+=`<line x1="${PL}" y1="${y}" x2="${W}" y2="${y}" stroke="#EEF2F7" stroke-width="1"/>`;
+      svg+=`<text x="${PL-10}" y="${y+4}" font-size="11.5" fill="#8A99AD" text-anchor="end">${fmt(v)}</text>`;
+    }
+    s.forEach((x,i)=>{
+      const cx=PL+cw*i+cw/2, e=+x.expected||0, r=+x.atRisk||0;
+      const eh=(H-PT-PB)*(e/mx), rh=(H-PT-PB)*(r/mx), base=H-PB;
+      svg+=`<rect x="${cx-bw/2}" y="${base-eh}" width="${bw}" height="${Math.max(0,eh)}" fill="#2E5A9E" rx="3"/>`;
+      if(r>0) svg+=`<rect x="${cx-bw/2}" y="${base-eh-rh}" width="${bw}" height="${Math.max(0,rh)}" fill="#E2B36B" rx="3"/>`;
+      svg+=`<text x="${cx}" y="${base-eh-rh-8}" font-size="12" font-weight="650" fill="#0E1726" text-anchor="middle">${fmt(e+r)}</text>`;
+      svg+=`<text x="${cx}" y="${base+20}" font-size="12" fill="#5A6B82" text-anchor="middle">${esc(x.label)}</text>`;
+    });
+    svg+=`<line x1="${PL}" y1="${H-PB}" x2="${W}" y2="${H-PB}" stroke="#E3E8EF" stroke-width="1.5"/></svg>`;
+    out += `<section>${secHead('Cash Collection Forecast')}`;
+    if (has(f.commentary)) out += `<p class="sec-note">${esc(f.commentary)}</p>`;
+    out += `<div class="card pad">
+      ${has(f.horizon)?`<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8A99AD;font-weight:650;margin-bottom:10px">${esc(f.horizon)}</div>`:''}
+      ${svg}
+      <div class="legend">
+        <span><i style="background:#2E5A9E"></i>Expected collection</span>
+        <span><i style="background:#E2B36B"></i>At risk</span>
+        ${has(f.totals&&f.totals.expected)?`<span style="margin-left:auto"><b style="color:#0E1726">Expected ${esc(f.totals.expected)}</b>${has(f.totals.atRisk)?` &nbsp;/&nbsp; at risk ${esc(f.totals.atRisk)}`:''}</span>`:''}
+      </div>
+      ${has(f.accuracyNote)?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid #EEF2F7;font-size:13px;color:#5A6B82">${esc(f.accuracyNote)}</div>`:''}
+    </div></section>`;
+  }
+
+  /* ---------- 8. CFO Alerts ---------- */
+  if (has(D.alerts)) {
+    out += `<section>${secHead('CFO Alerts')}` + D.alerts.map(a=>`
+      <div class="alert ${sev(a.severity)}">
+        <div class="sev">${pill(a.severity)}${has(a.timing)?`<span style="font-size:12px;color:#5A6B82;font-weight:600">${esc(a.timing)}</span>`:''}</div>
+        <div class="body">
+          <h4>${esc(a.title)}</h4>
+          <dl>
+            ${has(a.finding)?`<dt>Finding</dt><dd>${esc(a.finding)}</dd>`:''}
+            ${has(a.risk)?`<dt>Risk</dt><dd>${esc(a.risk)}</dd>`:''}
+            ${has(a.action)?`<dt>Action</dt><dd>${esc(a.action)}</dd>`:''}
+          </dl>
+          ${has(a.owner)?`<div class="who">Owner: <b>${esc(a.owner)}</b>${has(a.timing)?` &nbsp;·&nbsp; Due: <b>${esc(a.timing)}</b>`:''}</div>`:''}
+        </div></div>`).join('') + `</section>`;
+  }
+
+  /* ---------- 9. Key Business Risks ---------- */
+  if (has(D.risks)) {
+    out += `<section>${secHead('Key Business Risks')}<div class="riskgrid">` + D.risks.map(r=>`
+      <div class="risk ${sev(r.severity)}">
+        <div class="top"><h4>${esc(r.title)}</h4>${pill(r.severity)}</div>
+        ${has(r.category)?`<span class="pill plain">${esc(r.category)}</span>`:''}
+        <p style="margin-top:10px">${esc(r.description||'')}</p>
+        <div class="meta">
+          ${has(r.likelihood)?`<span>Likelihood <b>${esc(r.likelihood)}</b></span>`:''}
+          ${has(r.impact)?`<span>Impact <b>${esc(r.impact)}</b></span>`:''}
+        </div>
+        ${has(r.mitigation)?`<div class="mit"><b>Mitigation</b>${esc(r.mitigation)}</div>`:''}
+      </div>`).join('') + `</div></section>`;
+  }
+
+  /* ---------- 10. Recommended Actions ---------- */
+  if (has(D.actions)) {
+    out += `<section>${secHead('Recommended Actions')}` + D.actions.map((a,i)=>`
+      <div class="action">
+        <div class="n">${esc(a.rank??i+1)}</div>
+        <div class="body">
+          <h4>${esc(a.action)}</h4>
+          ${has(a.rationale)?`<p>${esc(a.rationale)}</p>`:''}
+          <div class="tags">
+            ${has(a.owner)?`<span class="tag">Owner <b>${esc(a.owner)}</b></span>`:''}
+            ${has(a.timing)?`<span class="tag">By <b>${esc(a.timing)}</b></span>`:''}
+            ${has(a.impact)?`<span class="tag">Impact <b>${esc(a.impact)}</b></span>`:''}
+            ${has(a.effort)?`<span class="tag">Effort <b>${esc(a.effort)}</b></span>`:''}
+          </div>
+          ${has(a.tradeoff)?`<div class="to"><b>Trade-off:</b> ${esc(a.tradeoff)}</div>`:''}
+        </div></div>`).join('') + `</section>`;
+  }
+
+  /* ---------- 11. Next Steps ---------- */
+  if (has(D.nextSteps)) {
+    out += `<section>${secHead('Next Steps')}<div class="steps">` + D.nextSteps.map(s=>`
+      <div class="step"><div class="w">${esc(s.when||'')}</div><div>${esc(s.item||'')}</div>
+      <div class="o">${esc(s.owner||'')}</div></div>`).join('') + `</div></section>`;
+  }
+
+  /* ---------- Data notes ---------- */
+  if (has(D.dataNotes)) {
+    out += `<section><div class="notes"><h3>Data gaps and caveats</h3><ul>` +
+      D.dataNotes.map(n=>`<li>${esc(n)}</li>`).join('') + `</ul></div></section>`;
+  }
+
+  out += `<footer><span>${esc(m.company||'')}${has(m.period)?` · ${esc(m.period)}`:''}</span>
+    <span>CFO review of previously completed analysis. Figures as presented in source reporting.</span></footer></div>`;
+
+  el.innerHTML = out;
+  if (has(m.company)) document.title = `CFO Review - ${m.company}${has(m.period)?` - ${m.period}`:''}`;
+})();
+</script>
+</body>
+</html>
