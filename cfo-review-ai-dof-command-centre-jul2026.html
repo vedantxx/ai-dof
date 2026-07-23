@@ -764,5 +764,89 @@ const DATA = {
   if (has(m.company)) document.title = `CFO Review - ${m.company}${has(m.period)?` - ${m.period}`:''}`;
 })();
 </script>
+
+<!-- ===================== BUDGET ALLOCATION SECTION ===================== -->
+<script>
+(function(){
+  const BUD = {
+    period: "FY2025 operating expense · consolidated USD",
+    totalAlloc: 9696000, totalActual: 9455688,
+    fixedAlloc: 8476000, varAlloc: 920000, cushionAlloc: 300000,
+    cats: [
+      { name:"Compensation & benefits",        beh:"Fixed",    alloc:4786000, actual:4738169 },
+      { name:"Occupancy & facilities",         beh:"Fixed",    alloc:904000,  actual:931415 },
+      { name:"Technology & data",              beh:"Fixed",    alloc:374000,  actual:389363 },
+      { name:"Insurance & risk",               beh:"Fixed",    alloc:564000,  actual:575412 },
+      { name:"Depreciation & amortisation",    beh:"Fixed",    alloc:1848000, actual:1866069 },
+      { name:"Professional & advisory fees",   beh:"Variable", alloc:321000,  actual:359771 },
+      { name:"Brand, marketing & travel",      beh:"Variable", alloc:257000,  actual:226388 },
+      { name:"Office & general administration",beh:"Variable", alloc:184000,  actual:212008 },
+      { name:"Other general & administrative", beh:"Variable", alloc:111000,  actual:100593 },
+      { name:"Credit provisions (bad debt)",   beh:"Variable", alloc:47000,   actual:56499 }
+    ]
+  };
+  const app = document.getElementById('app');
+  if (!app) return;
+  const footer = app.querySelector('footer');
+  const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fmt = n => { const a=Math.abs(n);
+    if(a>=1e6) return (n<0?'-':'')+'$'+(a/1e6).toFixed(2).replace(/\.?0+$/,'')+'M';
+    if(a>=1e3) return (n<0?'-':'')+'$'+Math.round(a/1e3)+'k'; return '$'+Math.round(n); };
+  const OK='#0F6B4F', HI='#B45309', CR='#B3261E', BR='#2E5A9E', LT='#EEF2F7';
+
+  const overs = BUD.cats.filter(c=>c.actual>c.alloc).length;
+  const util = BUD.totalActual/BUD.totalAlloc;
+
+  // ---- utilisation bar chart (SVG) ----
+  const W=1000, ROW=42, GAP=8, LW=270, RW=150, MAXU=1.30;
+  const cats=BUD.cats, H=cats.length*(ROW+GAP);
+  const x0=LW, x1=W-RW, span=x1-x0;
+  const ux = u => x0 + span*(Math.min(u,MAXU)/MAXU);
+  let svg = `<svg viewBox="0 0 ${W} ${H+30}" class="chart" role="img" aria-label="Budget utilisation by expense category">`;
+  // 100% reference line
+  const refx = ux(1.0);
+  svg += `<line x1="${refx}" y1="0" x2="${refx}" y2="${H}" stroke="${CR}" stroke-width="1.4" stroke-dasharray="4 4" opacity=".7"/>`;
+  svg += `<text x="${refx}" y="${H+18}" font-size="12" fill="${CR}" font-weight="650" text-anchor="middle">100% allocation</text>`;
+  cats.forEach((c,i)=>{
+    const y=i*(ROW+GAP), u=c.actual/c.alloc, over=c.actual>c.alloc;
+    const col = u>1.10?CR : over?HI : OK;
+    svg += `<text x="0" y="${y+ROW/2-2}" font-size="13.5" font-weight="600" fill="#1F2C40">${esc(c.name)}</text>`;
+    svg += `<text x="0" y="${y+ROW/2+15}" font-size="11.5" fill="#8A99AD">${esc(c.beh)} · alloc ${fmt(c.alloc)}</text>`;
+    // track to 100%
+    svg += `<rect x="${x0}" y="${y+7}" width="${ux(1.0)-x0}" height="${ROW-14}" rx="4" fill="${LT}"/>`;
+    // actual bar
+    svg += `<rect x="${x0}" y="${y+7}" width="${Math.max(2,ux(u)-x0)}" height="${ROW-14}" rx="4" fill="${col}"/>`;
+    // labels
+    svg += `<text x="${x1+12}" y="${y+ROW/2-2}" font-size="13.5" font-weight="680" fill="#0E1726">${fmt(c.actual)}</text>`;
+    svg += `<text x="${x1+12}" y="${y+ROW/2+15}" font-size="11.5" font-weight="650" fill="${col}">${(u*100).toFixed(0)}%${over?' ▲':''}</text>`;
+  });
+  svg += `</svg>`;
+
+  // ---- allocation mix strip ----
+  const mixTot=BUD.fixedAlloc+BUD.varAlloc+BUD.cushionAlloc;
+  const mix=[["Fixed / non-discretionary",BUD.fixedAlloc,BR],["Variable / discretionary",BUD.varAlloc,HI],["Contingency / cushion",BUD.cushionAlloc,"#8A99AD"]];
+  let mixbar=`<div style="display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line)">`;
+  mix.forEach(([lab,v,c])=> mixbar+=`<div style="width:${(v/mixTot*100).toFixed(1)}%;background:${c}" title="${esc(lab)}"></div>`);
+  mixbar+=`</div><div class="legend" style="margin-top:10px">`+mix.map(([lab,v,c])=>`<span><i style="background:${c}"></i>${esc(lab)} — ${fmt(v)} (${(v/mixTot*100).toFixed(0)}%)</span>`).join('')+`</div>`;
+
+  const kpis = [
+    ["Total allocation", fmt(BUD.totalAlloc), "ok", "FY2025 operating expense plan"],
+    ["Actual spend", fmt(BUD.totalActual), "ok", (util*100).toFixed(1)+"% utilised"],
+    ["Variance", fmt(BUD.totalAlloc-BUD.totalActual), "medium", "favourable, largely the cushion"],
+    ["Over allocation", overs+" of "+BUD.cats.length, "high", "categories above 100% — review"]
+  ];
+  const kpiHtml = `<div class="kpis" style="margin-bottom:16px">`+kpis.map(k=>
+    `<div class="kpi ${k[2]}"><div class="k">${k[0]}</div><div class="v num">${esc(k[1])}</div><div class="n">${esc(k[3])}</div></div>`).join('')+`</div>`;
+
+  const sec = document.createElement('section');
+  sec.innerHTML =
+    `<div class="sec-head"><h2>Budget Allocation</h2><div class="rule"></div></div>`+
+    `<p class="sec-note">${esc(BUD.period)}. Actuals are real general-ledger operating expense (ties to the income statement); allocations are modelled. Bars show spend against each category's allocation — the dashed line is 100%, amber is over, red is more than 10% over.</p>`+
+    kpiHtml+
+    `<div class="card pad">${svg}</div>`+
+    `<div class="card pad" style="margin-top:14px"><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--slate);font-weight:650;margin-bottom:10px">Allocation mix</div>${mixbar}</div>`;
+  app.querySelector('.wrap').insertBefore(sec, footer);
+})();
+</script>
 </body>
 </html>
