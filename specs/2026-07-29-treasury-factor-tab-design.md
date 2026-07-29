@@ -133,9 +133,20 @@ Two regimes, which is where the planted findings live:
 | Idiosyncratic vol | 6%/yr | 11%/yr |
 
 A defensive, mildly value-tilted portfolio quietly rotates into high-beta small-cap growth
-in the second half. Additionally: a six-week shock in 2026-Q1 sizing maximum drawdown to
-≈−14%, and a 45bp/yr fee drag applied so that gross alpha reads positive and net alpha
-reads negative.
+in the second half. Additionally: a six-week shock in 2026-Q1 sizing maximum drawdown past
+the 10% policy limit, and a 45bp/yr fee drag netted out of the committed series.
+
+**The alpha finding.** True alpha baked into the generator is small — +0.25%/yr in FY2025,
+−0.50%/yr in FY2026 — while the SMB, HML and RMW tilts earn real factor premia present in
+the panel. CAPM, having only a market factor, misattributes those premia to skill and
+reports an alpha of roughly +2%/yr. The FF5 regression, which controls for them, reports an
+alpha near zero; net of the 45bp fee it is negative. The finding is therefore not "alpha
+fell" but "there was never any alpha — it was factor exposure, and the fee is being paid for
+it." A 45bp fee could not arithmetically flip a genuine +2% alpha negative, which is why
+the effect has to come from factor attribution rather than fee drag.
+
+Committed returns are **net** of fees, matching how a custodian statement reads. Gross
+figures shown on the page are derived by adding the fee back.
 
 The full-period beta lands at ≈0.94 — inside the policy limit. **Only the 63-day rolling
 window exposes the breach.** That asymmetry is the point of the page: the annual number
@@ -148,15 +159,15 @@ Columns `month`, per-entity revenue growth (`MHG, MLG, CFS, NWC, APX`), group re
 growth, and three factors: `freight_rate_index, diesel_price, industrial_production`.
 60 months, Jul-2021 → Jun-2026.
 
-The final 24 months are constrained so that monthly revenue **sums exactly to the real
-ledger's quarterly revenue** for each of the eight quarters in `data_compact/csv/`. The
-first 36 months are free-running synthetic pre-history. This matters: 8 quarterly
-observations cannot support a three-factor regression, and 60 unconstrained synthetic
-months would float free of the actual company. Constraining the overlap stitches the
-pre-history onto real actuals, so the regression is both statistically defensible and
-genuinely about Meridian.
+The final 24 months are **actual** monthly revenue, read from `Invoices.csv`, which carries
+a monthly `Period` column (2024-07 → 2026-06) and an `Entity` column. No modelling is
+involved in that half of the series. The first 36 months are synthetic pre-history, needed
+because 24 observations cannot support a three-factor regression while 60 can.
 
-A test asserts the re-aggregation is exact.
+Per-entity coverage is MLG, CFS, NWC and APX. MHG is the holding company and books no
+invoice revenue, so it carries no loading.
+
+A test asserts the last 24 monthly values equal the ledger's monthly revenue exactly.
 
 ## The analytics module
 
@@ -204,11 +215,18 @@ will be the normal case — the warning fires and says the loadings are illustra
 
 Three checks, stated as an investment policy on the page so the breaches are legible:
 
-| Check | Limit | Result |
-|---|---|---|
-| Rolling market beta | ≤ 1.00 | 1.31 — **breach** |
-| Maximum drawdown | ≤ 10% | −14.2% — **breach** |
-| Alpha, net of fees | ≥ 0 | −0.6% — **breach** |
+| Check | Limit | Result | Cash sizing |
+|---|---|---|---|
+| Peak rolling market beta | ≤ 1.00 | ≈1.3 — **breach** | excess beta × 20% market decline × notional |
+| Maximum drawdown | ≤ 10% | past limit — **breach** | (realized MDD − 10%) × notional |
+| FF5 alpha, net of fees | ≥ 0 | negative — **breach** | annual fee paid × notional |
+
+Portfolio notional is a MODELLED constant, $9.0M of the group's cash — set in the generator
+config and used only for sizing the breaches in dollars.
+
+Figures above are targets, not assertions. The generator is tuned once against acceptance
+bands (see the plan's calibration step) and the tests assert the bands, not decimal-exact
+values — a test pinned to −14.2% would break on any harmless generator change.
 
 Every check is computable from the two committed return series alone. An earlier draft
 included a holdings-concentration limit; it is dropped, because the portfolio is stored as a
