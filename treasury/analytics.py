@@ -374,3 +374,125 @@ def rolling_factor_betas(portfolio: pd.Series, factor_data: FactorData,
         return pd.DataFrame(columns=factors)
     out = pd.DataFrame(rows, index=pd.DatetimeIndex(index, name="date"))
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  5. Judgment -- the investment policy the DOF is accountable for
+# --------------------------------------------------------------------------- #
+@dataclass
+class Breach:
+    """One policy check, sized and assigned.
+
+    Follows the ai-dof skill's rule that a finding must answer three questions:
+    why it matters sized in cash, what risk it creates, and what management
+    should do -- with an owner and a date.
+    """
+    check: str
+    limit: str
+    observed: str
+    breached: bool
+    cash_at_risk: float
+    why: str
+    risk: str
+    action: str
+    owner: str
+    due: str
+
+
+POLICY_OWNER = "Group CFO"
+POLICY_DUE = "2026-09-30"
+
+
+def _money(v: float) -> str:
+    """Match the existing app's money formatting."""
+    v = float(v)
+    if abs(v) >= 1e6:
+        return f"${v / 1e6:,.2f}M"
+    if abs(v) >= 1e3:
+        return f"${v / 1e3:,.0f}k"
+    return f"${v:,.0f}"
+
+
+def policy_check(perf: PerformanceStats, capm: RegressionResult,
+                 ff5: RegressionResult, rolling: pd.DataFrame) -> list[Breach]:
+    """Evaluate the treasury investment policy.
+
+    Returns all three checks in a stable order whether or not they breach, so
+    the page can show a compliance table rather than only bad news.
+    """
+    notional = cfg.PORTFOLIO_NOTIONAL
+    limits = cfg.POLICY
+
+    # --- 1. Mandate drift. The peak ROLLING beta, not the full-period beta:
+    # the full-period number is inside the limit, which is the whole point.
+    peak_beta = (float(rolling["Mkt-RF"].max())
+                 if not rolling.empty and "Mkt-RF" in rolling else float("nan"))
+    full_beta = capm.loading("Beta (Market)")
+    full_beta_val = full_beta.coef if full_beta else float("nan")
+    beta_excess = max(0.0, peak_beta - limits["max_beta"]) if np.isfinite(peak_beta) else 0.0
+    beta_breached = np.isfinite(peak_beta) and peak_beta > limits["max_beta"]
+
+    beta = Breach(
+        check="Peak rolling market beta",
+        limit=f"{limits['max_beta']:.2f}",
+        observed=f"{peak_beta:.3f}",
+        breached=bool(beta_breached),
+        cash_at_risk=beta_excess * limits["market_stress"] * notional,
+        why=(f"Peak {cfg.DEFAULT_WINDOW}-day rolling beta reached {peak_beta:.2f} "
+             f"against a {limits['max_beta']:.2f} mandate ceiling. The full-period "
+             f"beta is {full_beta_val:.2f} and looks compliant, so the annual "
+             f"report would not have caught this."),
+        risk=(f"In a {limits['market_stress']:.0%} market decline the excess "
+              f"exposure alone costs roughly "
+              f"{_money(beta_excess * limits['market_stress'] * notional)} of "
+              f"operating cash the group has not budgeted to lose."),
+        action="Rebalance to the mandate ceiling and add a rolling-beta breach alert.",
+        owner=POLICY_OWNER,
+        due=POLICY_DUE,
+    )
+
+    # --- 2. Capital preservation.
+    mdd = abs(perf.max_drawdown)
+    dd_excess = max(0.0, mdd - limits["max_drawdown"])
+    drawdown = Breach(
+        check="Maximum drawdown",
+        limit=f"-{limits['max_drawdown']:.0%}",
+        observed=f"{perf.max_drawdown:.1%}",
+        breached=bool(mdd > limits["max_drawdown"]),
+        cash_at_risk=dd_excess * notional,
+        why=(f"Peak-to-trough decline reached {perf.max_drawdown:.1%} against a "
+             f"-{limits['max_drawdown']:.0%} tolerance — "
+             f"{_money(dd_excess * notional)} beyond policy on "
+             f"{_money(notional)} invested."),
+        risk=("Treasury exists to preserve operating liquidity, not to earn a "
+              "risk premium. A drawdown of this size can collide with a quarter "
+              "in which the group needs the cash."),
+        action="Cut equity beta until the trailing drawdown is inside tolerance.",
+        owner=POLICY_OWNER,
+        due=POLICY_DUE,
+    )
+
+    # --- 3. Is anyone actually adding value? Compare the two alphas.
+    net_alpha = ff5.alpha_annualized
+    gross_alpha = net_alpha + cfg.FEE_ANNUAL
+    fee_cost = cfg.FEE_ANNUAL * notional
+    alpha = Breach(
+        check="Alpha, net of fees",
+        limit=f"{limits['min_net_alpha']:.0%}",
+        observed=f"{net_alpha:+.2%}",
+        breached=bool(net_alpha < limits["min_net_alpha"]),
+        cash_at_risk=fee_cost,
+        why=(f"CAPM reports {capm.alpha_annualized:+.2%} alpha, but that is style "
+             f"premia a single market factor cannot see. Controlling for all five "
+             f"Fama-French factors leaves {gross_alpha:+.2%} gross and "
+             f"{net_alpha:+.2%} net of the {cfg.FEE_ANNUAL:.2%} fee."),
+        risk=(f"The group pays {_money(fee_cost)} a year for exposure it could "
+              f"hold passively. The apparent outperformance is factor beta, not "
+              f"manager skill, and it will reverse when those factors do."),
+        action=("Move the mandate to a low-cost index sleeve or renegotiate the "
+                "fee against a factor-adjusted benchmark."),
+        owner=POLICY_OWNER,
+        due=POLICY_DUE,
+    )
+
+    return [beta, drawdown, alpha]

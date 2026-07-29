@@ -198,3 +198,64 @@ def test_rolling_betas_return_empty_frame_when_window_exceeds_sample(loaded):
                                   cfg.FF5_FACTORS, window=63)
     assert roll.empty
     assert list(roll.columns) == cfg.FF5_FACTORS
+
+
+# ----------------------------------------------------------------- policy -- #
+@pytest.fixture(scope="module")
+def breaches(loaded):
+    rets, fd = loaded
+    rf = fd.factors["RF"]
+    perf = an.performance_stats(rets["portfolio_return"], rf)
+    capm = an.capm_regression(rets["portfolio_return"], rets["SPY"], rf)
+    ff5 = an.fama_french_regression(rets["portfolio_return"], fd, cfg.FF5_FACTORS)
+    roll = an.rolling_factor_betas(rets["portfolio_return"], fd, cfg.FF5_FACTORS,
+                                   cfg.DEFAULT_WINDOW)
+    return an.policy_check(perf, capm, ff5, roll)
+
+
+def test_policy_check_returns_all_three_checks_in_stable_order(breaches):
+    assert [b.check for b in breaches] == [
+        "Peak rolling market beta", "Maximum drawdown", "Alpha, net of fees",
+    ]
+
+
+def test_all_three_planted_breaches_fire(breaches):
+    """If this fails, the planted findings have been generated away."""
+    assert all(b.breached for b in breaches), \
+        [(b.check, b.observed) for b in breaches if not b.breached]
+
+
+def test_every_breach_is_sized_in_cash_and_assigned(breaches):
+    """The ai-dof skill's rule: why it matters in cash, the risk, the action."""
+    for b in breaches:
+        assert b.cash_at_risk > 0
+        assert b.cash_at_risk < cfg.PORTFOLIO_NOTIONAL
+        assert b.why and b.risk and b.action and b.owner and b.due
+
+
+def test_beta_breach_is_sized_off_the_market_stress_assumption(breaches):
+    beta_breach = breaches[0]
+    # excess beta x stress x notional
+    assert beta_breach.cash_at_risk == pytest.approx(
+        (float(beta_breach.observed) - cfg.POLICY["max_beta"])
+        * cfg.POLICY["market_stress"] * cfg.PORTFOLIO_NOTIONAL, rel=0.01)
+
+
+def test_policy_check_reports_compliance_when_limits_are_respected():
+    """A well-behaved portfolio must produce zero breaches -- otherwise the page
+    cries wolf and the finding means nothing."""
+    idx = pd.bdate_range("2024-07-01", periods=300)
+    rng = np.random.default_rng(4)
+    calm = pd.Series(rng.normal(0.0004, 0.004, len(idx)), index=idx)
+    spy = pd.Series(rng.normal(0.0003, 0.008, len(idx)), index=idx)
+    rf = pd.Series(cfg.RF_ANNUAL / 252, index=idx)
+    panel = pd.DataFrame({f: rng.normal(0, 0.004, len(idx)) for f in cfg.FF5_FACTORS},
+                         index=idx)
+    panel["RF"] = rf
+    fd = an.FactorData(panel, "test", True)
+    perf = an.performance_stats(calm, rf)
+    capm = an.capm_regression(calm, spy, rf)
+    ff5 = an.fama_french_regression(calm, fd, cfg.FF5_FACTORS)
+    roll = an.rolling_factor_betas(calm, fd, cfg.FF5_FACTORS, 63)
+    result = an.policy_check(perf, capm, ff5, roll)
+    assert not any(b.breached for b in result)
