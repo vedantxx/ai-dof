@@ -67,16 +67,20 @@ FACTOR_PREMIUM = {
 # high-beta small-cap growth. `alpha` is TRUE annualized alpha, deliberately
 # tiny -- the ~+2% that CAPM will report is factor premia, not skill.
 REGIMES = {
-    "FY2025": dict(mkt=0.85, smb=-0.15, hml=0.20, rmw=0.10, cma=0.05,
+    "FY2025": dict(mkt=0.85, smb=-0.15, hml=0.45, rmw=0.35, cma=0.05,
                    idio=0.060, alpha=0.0025),
     "FY2026": dict(mkt=1.31, smb=0.55, hml=-0.30, rmw=-0.20, cma=-0.10,
                    idio=0.110, alpha=-0.0050),
 }
 
-# A six-week shock that pushes maximum drawdown past the policy limit.
+# A six-week market selloff. Applied to the MARKET factor, not to the portfolio
+# directly: the drawdown must be something the portfolio amplified through its
+# drifted beta, not an unexplained idiosyncratic drag. Putting it in the
+# portfolio's residual instead would land the whole episode in the regression
+# intercept and destroy the alpha finding.
 SHOCK_START = "2026-02-02"
 SHOCK_END = "2026-03-13"
-SHOCK_DAILY = -0.0035         # calibrated in Task 2; see the tuning loop
+SHOCK_DAILY = -0.0038         # daily excess-return drag on Mkt-RF
 
 # --------------------------------------------------------------------------- #
 #  Investment policy — what the Director of Finance is accountable for
