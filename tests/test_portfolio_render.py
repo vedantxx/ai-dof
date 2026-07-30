@@ -23,7 +23,7 @@ def analysis():
 def test_run_full_analysis_bundles_everything_the_page_needs(analysis):
     for attr in ("returns", "rf_daily", "perf_portfolio", "perf_spy", "capm",
                  "ff5", "ff3", "rolling_betas", "rolling_sharpe", "breaches",
-                 "operating_group", "operating_entities", "factor_source",
+                 "notional", "holdings", "cost_basis", "factor_source",
                  "factor_is_synthetic", "window"):
         assert hasattr(analysis, attr), attr
 
@@ -32,7 +32,7 @@ def test_charts_are_self_contained_fragments_with_no_cdn(analysis):
     from portfolio import charts
     figs = charts.build_all_charts(analysis)
     assert set(figs) == {"equity", "drawdown", "rolling_sharpe", "attribution",
-                         "loadings", "operating"}
+                         "loadings", "holdings"}
     for name, html in figs.items():
         assert html.strip(), name
         assert "cdn.plot.ly" not in html, f"{name} must not reach a CDN"
@@ -145,13 +145,38 @@ def test_page_reports_all_three_policy_breaches_with_owners(page, analysis):
         assert b.due in page
 
 
-def test_page_includes_both_factor_tables_and_the_operating_section(page):
+def test_page_includes_both_factor_tables_and_the_holdings_card(page):
     assert "Fama-French 5-Factor" in page
     assert "Fama-French 3-Factor" in page
     assert "CAPM" in page
-    assert "Operating Factor Model" in page
-    for entity in cfg.OPERATING_ENTITIES:
-        assert entity in page
+    assert "Portfolio Companies" in page
+    import html
+
+    for ticker, h in cfg.HOLDINGS.items():
+        assert ticker in page
+        assert h["name"] in page
+        # Autoescaping renders "&" as "&amp;" -- compare what the page holds.
+        assert html.escape(h["business"]) in page
+
+
+def test_the_page_no_longer_carries_the_operating_factor_section(page):
+    """Dropped deliberately: it regressed the same four companies' revenue from
+    the other direction, which is the portfolio itself."""
+    assert "Operating Factor Model" not in page
+    assert "freight_rate_index" not in page
+
+
+def test_holdings_card_flags_the_position_over_the_limit(page, analysis):
+    over = [t for t in analysis.holdings.index
+            if float(analysis.holdings.loc[t, "weight"]) > cfg.POLICY["max_weight"]]
+    assert over, "the concentration finding needs a position over the limit"
+    assert "weight-over" in page
+
+
+def test_holdings_card_states_cost_and_mark(page, analysis):
+    from portfolio.analytics import _money
+    assert _money(analysis.cost_basis) in page
+    assert _money(analysis.notional) in page
 
 
 def test_page_states_the_observation_count_and_date_range(page, analysis):

@@ -254,9 +254,33 @@ def ar_analysis(_inv: pd.DataFrame):
     return aging, cust, o["Balance"].sum()
 
 
+@st.cache_data(show_spinner=False)
+def portfolio_summary() -> dict | None:
+    """Headline figures from the portfolio tearsheet, for the Details page card."""
+    from portfolio import analytics as pan, config as pcfg
+
+    if not pcfg.RETURNS_CSV.exists():
+        return None
+    res = pan.run_full_analysis(pan.load_returns(pcfg.RETURNS_CSV), try_live=False)
+    breached = [b for b in res.breaches if b.breached]
+    largest = res.holdings["weight"].astype(float).idxmax()
+    return {
+        "value": money(res.notional),
+        "gain_pct": f"{res.notional / res.cost_basis - 1:+.1%}",
+        "alpha": f"{res.ff5.alpha_annualized:+.1%}",
+        "mdd": f"{res.perf_portfolio.max_drawdown:.1%}",
+        "dd_limit": f"{pcfg.POLICY['max_drawdown']:.0%}",
+        "breaches": f"{len(breached)} of {len(res.breaches)}",
+        "breach_names": ", ".join(b.check.split()[0].lower() for b in breached),
+        "largest": largest,
+        "largest_weight": f"{float(res.holdings.loc[largest, 'weight']):.1%}",
+        "weight_limit": f"{pcfg.POLICY['max_weight']:.0%}",
+    }
+
+
 @st.cache_data(show_spinner="Running the factor regressions…")
 def portfolio_tearsheet(window: int, theme: str) -> str:
-    """Full treasury analysis, rendered to a self-contained HTML page.
+    """Full portfolio analysis, rendered to a self-contained HTML page.
 
     Cached per window: the rolling regressions re-fit on every window change and
     cost a second or two.
@@ -543,9 +567,9 @@ elif page == "Portfolio & factors":
 
     st.title("Portfolio & factor analysis")
     st.caption(
-        "Meridian's excess cash under management · CAPM, Fama-French 3- and "
-        "5-factor regressions, rolling factor betas and investment-policy "
-        "compliance · the operating factor model sits in section 2")
+        "Meridian Holdings Group as investor: the four operating stakes it owns, "
+        "marked and analysed · CAPM, Fama-French 3- and 5-factor regressions, "
+        "rolling factor betas and investment-policy compliance")
 
     if not tcfg.RETURNS_CSV.exists():
         st.error(
@@ -572,6 +596,25 @@ elif page == "Portfolio & factors":
 elif page == "Details":
     st.title("CFO review — detail")
     st.caption("The full CFO review dashboard, embedded. Recoloured to the app's palette.")
+
+    # One card carrying the portfolio tearsheet's conclusion, so the review page
+    # opens with it rather than requiring a trip to the other tab.
+    summary = portfolio_summary()
+    if summary:
+        with st.container(border=True):
+            st.markdown("#### Portfolio — from the tearsheet")
+            c = st.columns(4)
+            c[0].metric("Marked value", summary["value"],
+                        summary["gain_pct"] + " vs cost")
+            c[1].metric("FF5 alpha, net", summary["alpha"], "after the 45bp charge")
+            c[2].metric("Max drawdown", summary["mdd"],
+                        f"policy −{summary['dd_limit']}", delta_color="inverse")
+            c[3].metric("Policy breaches", summary["breaches"],
+                        summary["breach_names"], delta_color="inverse")
+            st.caption(
+                f"{summary['largest']} is the largest position at "
+                f"{summary['largest_weight']} against a {summary['weight_limit']} "
+                f"limit · full detail on the Portfolio & factors page.")
     if CFO_HTML.exists():
         html = CFO_HTML.read_text(encoding="utf-8")
         # recolour: shift the dashboard brand from navy to the app's teal/green scheme

@@ -88,45 +88,39 @@ def test_generator_is_deterministic():
     assert cfg.RETURNS_CSV.read_bytes() == before, "same seed must give identical bytes"
 
 
-# ------------------------------------------------- operating factor panel -- #
+# ------------------------------------------------------- holdings prices -- #
 @pytest.fixture(scope="module")
-def operating() -> pd.DataFrame:
-    return pd.read_csv(cfg.OPERATING_CSV)
+def prices() -> pd.DataFrame:
+    return pd.read_csv(cfg.PRICES_CSV, parse_dates=["date"]).set_index("date")
 
 
-def test_operating_panel_covers_the_full_history(operating):
-    # 60 months of levels give 59 growth rates: the first month has no prior.
-    assert len(operating) == 59
-    assert operating["month"].iloc[0] == "2021-08"
-    assert operating["month"].iloc[-1] == cfg.LEDGER_END
-    assert operating["month"].is_monotonic_increasing
+def test_prices_cover_every_holding_on_every_trading_day(prices, returns):
+    assert list(prices.columns) == cfg.TICKERS
+    assert prices.index.equals(returns.index)
 
 
-def test_operating_panel_columns(operating):
-    for e in cfg.OPERATING_ENTITIES:
-        assert f"{e}_growth" in operating.columns
-    assert "group_growth" in operating.columns
-    assert "is_actual" in operating.columns
-    for f in cfg.OPERATING_FACTORS:
-        assert f in operating.columns
-    assert "MHG_growth" not in operating.columns, "holdco books no invoice revenue"
+def test_prices_start_at_the_configured_opening_price(prices):
+    for t in cfg.TICKERS:
+        first = float(prices[t].iloc[0])
+        # Day one already carries one day of return, so allow a small drift.
+        assert first == pytest.approx(cfg.HOLDINGS[t]["price"], rel=0.05)
 
 
-def test_last_twenty_three_months_are_flagged_actual(operating):
-    # The ledger's first month (2024-07) has no prior month inside the ledger,
-    # so its growth rate is undefined and it is not flagged actual.
-    actual = operating[operating["is_actual"] == 1]
-    assert len(actual) == 23
-    assert actual["month"].iloc[0] == "2024-08"
-    assert actual["month"].iloc[-1] == cfg.LEDGER_END
+def test_prices_are_positive_and_free_of_gaps(prices):
+    assert prices.notna().all().all()
+    assert (prices > 0).all().all()
 
 
-def test_actual_revenue_growth_reconciles_to_the_ledger(operating):
-    """The overlap is ACTUAL ledger revenue, not modelled. If this drifts, the
-    section-2 regression is no longer about Meridian."""
-    from generate_portfolio_data import ledger_monthly_revenue
+def test_portfolio_return_is_the_value_weighted_holdings_return(prices, returns):
+    """The portfolio is not an independent series -- it must be reproducible from
+    the positions, or the holdings card and the tearsheet describe different
+    things."""
+    from generate_portfolio_data import share_counts
 
-    ledger = ledger_monthly_revenue()
-    expected = ledger["GROUP"].pct_change().dropna()
-    got = operating.set_index("month").loc[expected.index, "group_growth"]
-    assert np.allclose(got.values, expected.values, atol=1e-5)
+    shares = share_counts()
+    values = pd.DataFrame({t: shares[t] * prices[t] for t in cfg.TICKERS})
+    holding_returns = prices.pct_change()
+    weights = values.div(values.sum(axis=1), axis=0).shift(1)
+    rebuilt = (weights * holding_returns).sum(axis=1).iloc[1:]
+    assert np.allclose(rebuilt.values, returns["portfolio_return"].iloc[1:].values,
+                       atol=1e-4)

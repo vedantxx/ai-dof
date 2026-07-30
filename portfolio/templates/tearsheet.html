@@ -5,7 +5,8 @@
     <h1 class="results-title">Portfolio Tearsheet</h1>
     <p class="results-meta">
       {{ n_obs }} daily observations · {{ start_date }} → {{ end_date }} ·
-      {{ window }}d rolling window · {{ notional }} under management
+      {{ window }}d rolling window · {{ notional }} marked against {{ cost_basis }}
+      invested ({{ portfolio_gain_pct }})
     </p>
   </div>
 </div>
@@ -23,11 +24,11 @@
 {% endif %}
 
 <div class="banner banner-danger">
-  <strong>Treasury investment policy — {{ breach_count }} breaches</strong>
+  <strong>Investment policy — {{ breach_count }} breaches</strong>
   <p style="margin-top:6px;font-size:12.5px;color:var(--muted)">
-    Breaches are sized against {{ notional }} of investable cash — the group's closing
-    cash balance less a {{ buffer_months }}-month operating buffer, both read from the
-    ledger. At a conventional three-month buffer there is no investable excess at all.
+    Breaches are sized against {{ notional }}, the portfolio's current mark. Cost basis
+    of {{ cost_basis }} is the ledger's contributed capital — what the members actually
+    put in.
   </p>
   <ul class="breach-list">
     {% for b in breaches %}
@@ -65,6 +66,47 @@
 </section>
 
 <section class="charts-grid">
+  <div class="panel panel-wide">
+    <h3 class="panel-title">Portfolio Companies
+      <span class="panel-sub">{{ notional }} marked · {{ cost_basis }} invested ·
+        {{ portfolio_gain }} gain</span>
+    </h3>
+    <table class="factor-table holdings-table">
+      <thead>
+        <tr>
+          <th>Company</th><th>Stake</th><th>Shares</th>
+          <th>Price</th><th>Since inception</th>
+          <th>Cost</th><th>Value</th><th>Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in holding_rows %}
+        <tr>
+          <td class="fac-name" title="{{ h.business }}">
+            <strong>{{ h.ticker }}</strong> · {{ h.name }}
+            <div class="holding-biz">{{ h.business }}</div>
+          </td>
+          <td class="mono">{{ h.ownership }}</td>
+          <td class="mono">{{ h.shares }}</td>
+          <td class="mono">{{ h.price }}
+            <div class="holding-biz mono">from {{ h.price_open }}</div>
+          </td>
+          <td class="mono pos">{{ h.total_return }}</td>
+          <td class="mono">{{ h.cost }}</td>
+          <td class="mono">{{ h.value }}</td>
+          <td class="mono{% if h.over_limit %} weight-over{% endif %}">{{ h.weight }}
+            {%- if h.over_limit %} ✗{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="table-note">
+      Weights drift with price and are never rebalanced, so the best performer becomes
+      the largest exposure. ✗ marks a position above the {{ max_weight }} concentration
+      limit. Ownership is MHG's stake; share counts and prices are MODELLED.
+    </p>
+  </div>
+  <div class="panel panel-wide">{{ chart_html.holdings | safe }}</div>
   <div class="panel panel-wide">{{ chart_html.equity | safe }}</div>
   <div class="panel">{{ chart_html.drawdown | safe }}</div>
   <div class="panel">{{ chart_html.rolling_sharpe | safe }}</div>
@@ -142,63 +184,4 @@
   </div>
 </section>
 
-<div class="section-head">
-  <h2>2 · Operating Factor Model</h2>
-  <p>
-    The same technique pointed at the group's own revenue. {{ operating_n }} monthly
-    observations — the most recent {{ operating_actual_n }} are <strong>actual</strong>
-    ledger revenue, the earlier months are MODELLED pre-history, since three factors
-    cannot be estimated from two dozen points.
-  </p>
-</div>
-
-<section class="tables-grid">
-  <div class="panel">
-    <h3 class="panel-title">Group Revenue Growth
-      <span class="panel-sub">R² = {{ '%.3f' % operating_r2 }}</span>
-    </h3>
-    <table class="factor-table">
-      <thead>
-        <tr><th>Factor</th><th>Coef</th><th>t-stat</th><th>p-value</th></tr>
-      </thead>
-      <tbody>
-        {% for r in operating_rows %}
-        <tr class="{{ 'sig' if r.significant else 'insig' }}">
-          <td class="fac-name" title="{{ r.description }}">{{ r.name }}</td>
-          <td class="mono">{{ r.coef }}</td>
-          <td class="mono">{{ r.tstat }}</td>
-          <td class="mono">{{ r.pvalue }}{% if r.significant %} <span class="star">★</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="table-note">
-      The freight index is the modelled quantity and is derived from observed revenue
-      over the ledger window, so this regression measures how the entities move with
-      the cycle — not whether Meridian's revenue is cyclical.
-    </p>
-  </div>
-  <div class="panel">
-    <h3 class="panel-title">Revenue Beta by Entity
-      <span class="panel-sub">univariate, vs the freight cycle</span>
-    </h3>
-    <table class="entity-table">
-      <thead>
-        <tr><th>Entity</th><th>Freight beta</th><th>t-stat</th><th>R²</th></tr>
-      </thead>
-      <tbody>
-        {% for r in entity_rows %}
-        <tr>
-          <td>{{ r.entity }}</td>
-          <td class="mono">{{ r.freight }}</td>
-          <td class="mono">{{ r.tstat }}</td>
-          <td class="mono">{{ r.r2 }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <p class="table-note">{{ operating_note }}</p>
-  </div>
-  <div class="panel panel-wide">{{ chart_html.operating | safe }}</div>
-</section>
 {% endblock %}

@@ -415,18 +415,16 @@ def _money(v: float) -> str:
 
 def policy_check(perf: PerformanceStats, capm: RegressionResult,
                  ff5: RegressionResult, rolling: pd.DataFrame,
-                 notional: float | None = None) -> list[Breach]:
-    """Evaluate the treasury investment policy.
+                 notional: float, concentration: tuple[str, float]) -> list[Breach]:
+    """Evaluate the portfolio investment policy.
 
     Returns all three checks in a stable order whether or not they breach, so
     the page can show a compliance table rather than only bad news.
 
-    ``notional`` sizes every breach in cash. It defaults to the investable cash
-    derived from the ledger rather than an assumed figure.
+    ``notional`` sizes every breach in cash: the portfolio's current mark, which
+    is derived from the holdings rather than assumed. ``concentration`` is the
+    (ticker, weight) pair from ``peak_weight``.
     """
-    from portfolio.ledger import investable_cash
-
-    notional = investable_cash() if notional is None else notional
     limits = cfg.POLICY
 
     # --- 1. Mandate drift. The peak ROLLING beta, not the full-period beta:
@@ -470,88 +468,112 @@ def policy_check(perf: PerformanceStats, capm: RegressionResult,
              f"-{limits['max_drawdown']:.0%} tolerance — "
              f"{_money(dd_excess * notional)} beyond policy on "
              f"{_money(notional)} invested."),
-        risk=("Treasury exists to preserve operating liquidity, not to earn a "
-              "risk premium. A drawdown of this size can collide with a quarter "
-              "in which the group needs the cash."),
-        action="Cut equity beta until the trailing drawdown is inside tolerance.",
+        risk=("These stakes are the group's balance sheet, not a trading book. "
+              "A decline of this size collides with any quarter in which the "
+              "holdco needs to borrow against them or sell one."),
+        action="Cut portfolio beta until the trailing drawdown is inside tolerance.",
         owner=POLICY_OWNER,
         due=POLICY_DUE,
     )
 
-    # --- 3. Is anyone actually adding value? Compare the two alphas.
-    net_alpha = ff5.alpha_annualized
-    gross_alpha = net_alpha + cfg.FEE_ANNUAL
-    fee_cost = cfg.FEE_ANNUAL * notional
-    alpha = Breach(
-        check="Alpha, net of fees",
-        limit=f"{limits['min_net_alpha']:.0%}",
-        observed=f"{net_alpha:+.2%}",
-        breached=bool(net_alpha < limits["min_net_alpha"]),
-        cash_at_risk=fee_cost,
-        why=(f"CAPM reports {capm.alpha_annualized:+.2%} alpha, but that is style "
-             f"premia a single market factor cannot see. Controlling for all five "
-             f"Fama-French factors leaves {gross_alpha:+.2%} gross and "
-             f"{net_alpha:+.2%} net of the {cfg.FEE_ANNUAL:.2%} fee."),
-        risk=(f"The group pays {_money(fee_cost)} a year for exposure it could "
-              f"hold passively. The apparent outperformance is factor beta, not "
-              f"manager skill, and it will reverse when those factors do."),
-        action=("Move the mandate to a low-cost index sleeve or renegotiate the "
-                "fee against a factor-adjusted benchmark."),
+    # --- 3. Concentration. Nobody rebalances a holdco's subsidiaries, so the
+    # biggest winner quietly becomes the biggest risk.
+    top_ticker, top_weight = concentration
+    excess_weight = max(0.0, top_weight - limits["max_weight"])
+    concentrated = Breach(
+        check="Largest position weight",
+        limit=f"{limits['max_weight']:.0%}",
+        observed=f"{top_weight:.1%}",
+        breached=bool(top_weight > limits["max_weight"]),
+        cash_at_risk=excess_weight * notional,
+        why=(f"{cfg.HOLDINGS[top_ticker]['name']} ({top_ticker}) reached "
+             f"{top_weight:.1%} of portfolio value against a "
+             f"{limits['max_weight']:.0%} single-position limit. Nothing was "
+             f"bought -- the position outgrew the limit and no one rebalanced."),
+        risk=(f"{_money(excess_weight * notional)} of value sits above the "
+              f"concentration limit. A reversal specific to {top_ticker} hits the "
+              f"group's balance sheet with no diversification to absorb it."),
+        action=(f"Take the {top_ticker} stake back to the limit, or restate the "
+                f"limit if the concentration is deliberate."),
         owner=POLICY_OWNER,
         due=POLICY_DUE,
     )
 
-    return [beta, drawdown, alpha]
+    return [beta, drawdown, concentrated]
 
 
 # --------------------------------------------------------------------------- #
-#  6. Operating factor model -- the same technique on the group's own revenue
+#  6. The holdings -- what the portfolio actually consists of
 # --------------------------------------------------------------------------- #
-def load_operating_panel() -> pd.DataFrame:
-    """Monthly revenue growth and freight-market factors."""
-    if not cfg.OPERATING_CSV.exists():
+def load_prices() -> pd.DataFrame:
+    """Daily share price per holding."""
+    if not cfg.PRICES_CSV.exists():
         raise FileNotFoundError(
-            f"Operating panel not found at {cfg.OPERATING_CSV}. "
+            f"Holdings prices not found at {cfg.PRICES_CSV}. "
             "Run: python3 generate_portfolio_data.py"
         )
-    return pd.read_csv(cfg.OPERATING_CSV)
+    return pd.read_csv(cfg.PRICES_CSV, parse_dates=["date"]).set_index("date")
 
 
-def operating_factor_model(panel: pd.DataFrame
-                           ) -> tuple[RegressionResult, pd.DataFrame]:
-    """Regress revenue growth on freight-market factors.
+def share_counts() -> dict[str, float]:
+    """Shares held per holding. Mirrors the generator's sizing."""
+    return {t: (cfg.OPENING_CAPITAL * h["weight"]) / h["price"]
+            for t, h in cfg.HOLDINGS.items()}
 
-    Same machinery as the portfolio tearsheet, pointed at the operating
-    business: which macro factors move Meridian's revenue, and which entities
-    amplify the cycle. Run on 59 monthly observations -- 23 actual, the rest
-    modelled pre-history -- because three factors cannot be estimated from two
-    dozen points.
+
+def position_values(prices: pd.DataFrame) -> pd.DataFrame:
+    """Mark-to-model value of each position, daily."""
+    shares = share_counts()
+    return pd.DataFrame({t: shares[t] * prices[t] for t in cfg.TICKERS},
+                        index=prices.index)
+
+
+def holdings_table(prices: pd.DataFrame) -> pd.DataFrame:
+    """One row per portfolio company: stake, price, value, weight, return.
+
+    This is the card a holdco board actually reads -- what do we own, what is it
+    worth now, and how concentrated are we.
     """
-    X = panel[cfg.OPERATING_FACTORS]
-    group = _ols(panel["group_growth"], X, label="Group revenue growth")
-    for l in group.loadings:
-        if l.name != "Alpha":
-            l.description = cfg.OPERATING_FACTOR_DESCRIPTIONS.get(l.name, "")
-            l.name = cfg.OPERATING_FACTOR_LABELS.get(l.name, l.name)
+    values = position_values(prices)
+    total = float(values.iloc[-1].sum())
+    shares = share_counts()
 
-    # Per entity, report the UNIVARIATE freight beta rather than three partial
-    # coefficients. With 59 observations and macro factors that co-move, the
-    # per-entity multivariate coefficients are too weakly identified to publish:
-    # they came out at +1.93 and -1.19 on industrial production, which is an
-    # artifact of the collinearity, not a fact about the entities. The freight
-    # beta is well identified and is the only figure the narrative uses.
     rows = {}
-    for entity in cfg.OPERATING_ENTITIES:
-        res = _ols(panel[f"{entity}_growth"],
-                   panel[["freight_rate_index"]], label=entity)
-        rows[entity] = {
-            "freight_beta": res.loading("freight_rate_index").coef,
-            "tstat": res.loading("freight_rate_index").tstat,
-            "r_squared": res.r_squared,
+    for t in cfg.TICKERS:
+        h = cfg.HOLDINGS[t]
+        first, last = float(prices[t].iloc[0]), float(prices[t].iloc[-1])
+        value = float(values[t].iloc[-1])
+        cost = cfg.OPENING_CAPITAL * h["weight"]
+        rows[t] = {
+            "name": h["name"],
+            "business": h["business"],
+            "ownership": h["ownership"],
+            "shares": shares[t],
+            "price_open": first,
+            "price": last,
+            "cost": cost,
+            "value": value,
+            "gain": value - cost,
+            "weight": value / total,
+            "opening_weight": h["weight"],
+            "total_return": last / first - 1.0,
         }
-    entities = pd.DataFrame(rows).T.reindex(cfg.OPERATING_ENTITIES)
-    entities.index.name = "entity"
-    return group, entities
+    df = pd.DataFrame(rows).T.reindex(cfg.TICKERS)
+    df.index.name = "ticker"
+    return df
+
+
+def portfolio_value(prices: pd.DataFrame) -> float:
+    """Current mark of the whole portfolio."""
+    return float(position_values(prices).iloc[-1].sum())
+
+
+def peak_weight(prices: pd.DataFrame) -> tuple[str, float]:
+    """The largest position weight ever reached, and whose it was."""
+    values = position_values(prices)
+    weights = values.div(values.sum(axis=1), axis=0)
+    ticker = weights.max().idxmax()
+    return ticker, float(weights[ticker].max())
 
 
 # --------------------------------------------------------------------------- #
@@ -569,10 +591,9 @@ class AnalysisResult:
     rolling_betas: pd.DataFrame
     rolling_sharpe: pd.Series
     breaches: list[Breach]
-    notional: float             # investable cash the breaches are sized against
-    operating_group: RegressionResult
-    operating_entities: pd.DataFrame
-    operating_actual_n: int      # months of ACTUAL ledger revenue in the panel
+    notional: float             # portfolio mark the breaches are sized against
+    holdings: pd.DataFrame      # one row per portfolio company
+    cost_basis: float           # what the four stakes cost, from the ledger
     factor_source: str
     factor_is_synthetic: bool
     window: int
@@ -596,29 +617,25 @@ def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
     ff3 = fama_french_regression(portfolio, factor_data, cfg.FF3_FACTORS)
     rolling_betas = rolling_factor_betas(portfolio, factor_data, cfg.FF5_FACTORS, window)
     roll_sharpe = rolling_sharpe(portfolio, window, rf_daily)
-    from portfolio.ledger import investable_cash
-
-    notional = investable_cash()
-    breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas, notional)
-    operating_panel = load_operating_panel()
-    group, entities = operating_factor_model(operating_panel)
+    prices = load_prices()
+    holdings = holdings_table(prices)
+    notional = portfolio_value(prices)
+    breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas, notional,
+                            peak_weight(prices))
 
     return AnalysisResult(
         returns=returns, rf_daily=rf_daily,
         perf_portfolio=perf_portfolio, perf_spy=perf_spy,
         capm=capm, ff5=ff5, ff3=ff3,
         rolling_betas=rolling_betas, rolling_sharpe=roll_sharpe,
-        breaches=breaches, notional=notional,
-        operating_group=group, operating_entities=entities,
-        operating_actual_n=int(operating_panel["is_actual"].sum()),
+        breaches=breaches, notional=notional, holdings=holdings,
+        cost_basis=cfg.OPENING_CAPITAL,
         factor_source=factor_data.source,
         factor_is_synthetic=factor_data.is_synthetic,
         window=window,
     )
 
 
-def investable_notional() -> float:
-    """The cash figure every breach is sized against. Convenience re-export."""
-    from portfolio.ledger import investable_cash
-
-    return investable_cash()
+def portfolio_notional() -> float:
+    """The mark every breach is sized against. Convenience wrapper."""
+    return portfolio_value(load_prices())

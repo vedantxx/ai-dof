@@ -13,18 +13,39 @@ def test_config_exposes_calibration_constants():
     assert cfg.SEED == 20260729
     assert cfg.TRADING_DAYS_PER_YEAR == 252
     assert pd.Timestamp(cfg.START) < pd.Timestamp(cfg.REGIME_SPLIT) < pd.Timestamp(cfg.END)
-    # Two regimes: the defensive first period and the drifted second period.
-    assert set(cfg.REGIMES) == {"FY2025", "FY2026"}
-    for name, r in cfg.REGIMES.items():
-        assert set(r) == {"mkt", "smb", "hml", "rmw", "cma", "idio", "alpha"}
-    # The planted drift: market beta rises through the policy limit.
-    assert cfg.REGIMES["FY2025"]["mkt"] < cfg.POLICY["max_beta"] < cfg.REGIMES["FY2026"]["mkt"]
+
+
+def test_holdings_are_the_four_operating_companies():
+    """MHG is the investor, not a position: it books no invoice revenue and
+    cannot be a holding of itself."""
+    assert cfg.TICKERS == ["MLG", "CFS", "NWC", "APX"]
+    assert "MHG" not in cfg.HOLDINGS
+    assert sum(h["weight"] for h in cfg.HOLDINGS.values()) == pytest.approx(1.0, abs=1e-9)
+    for ticker, h in cfg.HOLDINGS.items():
+        assert 0 < h["ownership"] <= 1.0
+        assert h["price"] > 0
+        for regime in ("fy25", "fy26"):
+            assert set(h[regime]) == {"mkt", "smb", "hml", "rmw", "cma", "idio"}
+
+
+def test_the_planted_drift_straddles_the_beta_ceiling():
+    """Weighted market beta starts compliant and ends through the limit, so only
+    a rolling window catches it."""
+    assert cfg.expected_loading("fy25", "mkt") < cfg.POLICY["max_beta"]
+    assert cfg.expected_loading("fy26", "mkt") > cfg.POLICY["max_beta"]
+
+
+def test_alpha_is_the_premise_of_the_strategy():
+    """These are stakes in businesses the holdco operates, so alpha is meant to
+    be real and material -- around 10% a year on an opening-weight basis."""
+    weighted = sum(h["weight"] * h["alpha"] for h in cfg.HOLDINGS.values())
+    assert 0.08 <= weighted <= 0.13
 
 
 def test_config_policy_limits_are_the_spec_values():
     assert cfg.POLICY["max_beta"] == 1.00
     assert cfg.POLICY["max_drawdown"] == 0.10
-    assert cfg.POLICY["min_net_alpha"] == 0.0
+    assert cfg.POLICY["max_weight"] == 0.40
 
 
 def test_data_dir_is_not_gitignored():
@@ -142,12 +163,12 @@ def test_capm_recovers_the_baked_in_beta_per_regime(loaded):
     rf = fd.factors["RF"]
     split = pd.Timestamp(cfg.REGIME_SPLIT)
 
-    for name, sl in (("FY2025", rets.index < split), ("FY2026", rets.index >= split)):
+    for regime, sl in (("fy25", rets.index < split), ("fy26", rets.index >= split)):
         sub = rets[sl]
         res = an.capm_regression(sub["portfolio_return"], sub["SPY"], rf.reindex(sub.index))
         beta = res.loading("Beta (Market)").coef
-        expected = cfg.REGIMES[name]["mkt"]
-        assert beta == pytest.approx(expected, abs=0.18), f"{name}: {beta:.3f}"
+        expected = cfg.expected_loading(regime, "mkt")
+        assert beta == pytest.approx(expected, abs=0.18), f"{regime}: {beta:.3f}"
 
     full = an.capm_regression(rets["portfolio_return"], rets["SPY"], rf)
     full_beta = full.loading("Beta (Market)").coef
@@ -157,27 +178,36 @@ def test_capm_recovers_the_baked_in_beta_per_regime(loaded):
 def test_ff5_recovers_the_baked_in_style_loadings(loaded):
     rets, fd = loaded
     split = pd.Timestamp(cfg.REGIME_SPLIT)
-    for name, sl in (("FY2025", rets.index < split), ("FY2026", rets.index >= split)):
+    for regime, sl in (("fy25", rets.index < split), ("fy26", rets.index >= split)):
         sub_fd = an.FactorData(fd.factors[sl], fd.source, fd.is_synthetic)
         res = an.fama_french_regression(rets["portfolio_return"][sl], sub_fd,
                                         cfg.FF5_FACTORS)
         for factor, key in (("Mkt-RF", "mkt"), ("SMB", "smb"), ("HML", "hml")):
             got = res.loading(factor).coef
-            assert got == pytest.approx(cfg.REGIMES[name][key], abs=0.25), \
-                f"{name} {factor}: {got:.3f}"
+            assert got == pytest.approx(cfg.expected_loading(regime, key), abs=0.25), \
+                f"{regime} {factor}: {got:.3f}"
         assert res.r_squared > 0.5
 
 
-def test_capm_alpha_is_positive_while_ff5_alpha_is_negative(loaded):
-    """The headline finding: CAPM mistakes factor premia for skill. Once the
-    style factors are controlled for, alpha net of fees is negative."""
+def test_alpha_survives_controlling_for_the_style_factors(loaded):
+    """The holdco's premise: these stakes earn real alpha, not disguised factor
+    exposure. CAPM will overstate it -- the FF5 intercept is the honest figure and
+    it must still be materially positive, net of the holdco charge."""
     rets, fd = loaded
     rf = fd.factors["RF"]
     capm = an.capm_regression(rets["portfolio_return"], rets["SPY"], rf)
     ff5 = an.fama_french_regression(rets["portfolio_return"], fd, cfg.FF5_FACTORS)
-    assert capm.alpha_annualized > 0.0
-    assert ff5.alpha_annualized < 0.0
+    assert ff5.alpha_annualized > 0.06, f"FF5 alpha {ff5.alpha_annualized:.2%}"
+    assert capm.alpha_annualized > ff5.alpha_annualized, \
+        "a single market factor should flatter the result, not understate it"
     assert ff5.r_squared >= capm.r_squared
+
+
+def test_the_portfolio_beats_its_benchmark(loaded):
+    rets, _ = loaded
+    port = float((1 + rets["portfolio_return"]).prod() - 1)
+    spy = float((1 + rets["SPY"]).prod() - 1)
+    assert port > spy, f"portfolio {port:.1%} vs SPY {spy:.1%}"
 
 
 def test_rolling_betas_expose_the_drift_the_full_period_hides(loaded):
@@ -210,12 +240,14 @@ def breaches(loaded):
     ff5 = an.fama_french_regression(rets["portfolio_return"], fd, cfg.FF5_FACTORS)
     roll = an.rolling_factor_betas(rets["portfolio_return"], fd, cfg.FF5_FACTORS,
                                    cfg.DEFAULT_WINDOW)
-    return an.policy_check(perf, capm, ff5, roll)
+    prices = an.load_prices()
+    return an.policy_check(perf, capm, ff5, roll, an.portfolio_value(prices),
+                           an.peak_weight(prices))
 
 
 def test_policy_check_returns_all_three_checks_in_stable_order(breaches):
     assert [b.check for b in breaches] == [
-        "Peak rolling market beta", "Maximum drawdown", "Alpha, net of fees",
+        "Peak rolling market beta", "Maximum drawdown", "Largest position weight",
     ]
 
 
@@ -229,7 +261,7 @@ def test_every_breach_is_sized_in_cash_and_assigned(breaches):
     """The ai-dof skill's rule: why it matters in cash, the risk, the action."""
     for b in breaches:
         assert b.cash_at_risk > 0
-        assert b.cash_at_risk < an.investable_notional()
+        assert b.cash_at_risk < an.portfolio_notional()
         assert b.why and b.risk and b.action and b.owner and b.due
 
 
@@ -238,7 +270,7 @@ def test_beta_breach_is_sized_off_the_market_stress_assumption(breaches):
     # excess beta x stress x notional
     assert beta_breach.cash_at_risk == pytest.approx(
         (float(beta_breach.observed) - cfg.POLICY["max_beta"])
-        * cfg.POLICY["market_stress"] * an.investable_notional(), rel=0.01)
+        * cfg.POLICY["market_stress"] * an.portfolio_notional(), rel=0.01)
 
 
 def test_policy_check_reports_compliance_when_limits_are_respected():
@@ -257,55 +289,49 @@ def test_policy_check_reports_compliance_when_limits_are_respected():
     capm = an.capm_regression(calm, spy, rf)
     ff5 = an.fama_french_regression(calm, fd, cfg.FF5_FACTORS)
     roll = an.rolling_factor_betas(calm, fd, cfg.FF5_FACTORS, 63)
-    result = an.policy_check(perf, capm, ff5, roll)
+    # A diversified book: the largest position sits inside the limit.
+    result = an.policy_check(perf, capm, ff5, roll, 10_000_000.0, ("MLG", 0.31))
     assert not any(b.breached for b in result)
 
 
-# -------------------------------------------------------- operating model -- #
-def test_operating_factor_model_returns_group_and_entity_loadings():
-    panel = an.load_operating_panel()
-    group, entities = an.operating_factor_model(panel)
-    assert group.nobs == 59, "60 months of levels give 59 growth observations"
-    assert {l.name for l in group.loadings} == {
-        "Alpha", *cfg.OPERATING_FACTOR_LABELS.values()}
-    assert list(entities.index) == cfg.OPERATING_ENTITIES
-    assert list(entities.columns) == ["freight_beta", "tstat", "r_squared"]
+# --------------------------------------------------------------- holdings -- #
+def test_holdings_table_reports_every_position():
+    prices = an.load_prices()
+    h = an.holdings_table(prices)
+    assert list(h.index) == cfg.TICKERS
+    for col in ("name", "business", "ownership", "shares", "price", "cost",
+                "value", "weight", "total_return"):
+        assert col in h.columns
 
 
-def test_freight_rates_lift_revenue_and_diesel_costs_are_a_drag():
-    """Signs must be economically sensible, or the section is noise."""
-    panel = an.load_operating_panel()
-    group, _ = an.operating_factor_model(panel)
-    assert group.loading("Freight rate index").coef > 0
-    assert group.loading("Freight rate index").significant
-    assert group.loading("Diesel price").coef < 0
+def test_position_values_reconcile_to_the_portfolio_mark():
+    prices = an.load_prices()
+    h = an.holdings_table(prices)
+    assert float(h["value"].sum()) == pytest.approx(an.portfolio_value(prices))
+    assert float(h["weight"].sum()) == pytest.approx(1.0)
 
 
-def test_the_cycle_amplifying_entities_are_the_ones_the_ledger_identifies():
-    """Which entities amplify the freight cycle is DERIVED from actual ledger
-    revenue, not assumed.
+def test_cost_basis_totals_the_ledgers_contributed_capital():
+    """The stakes cost what the members put in -- nothing is invented here."""
+    h = an.holdings_table(an.load_prices())
+    assert float(h["cost"].sum()) == pytest.approx(cfg.OPENING_CAPITAL, rel=1e-9)
 
-    Deliberately tests the PAIR rather than the single argmax. MLG and CFS come
-    out within 0.02 of each other on the pooled sample -- statistically
-    indistinguishable, and the ordering flips between the actual window and the
-    modelled pre-history. Asserting a winner on a 0.02 gap would be a test of
-    sampling noise. The robust fact is the ~0.3 gap between the freight-exposed
-    pair and the contract-based pair.
-    """
-    panel = an.load_operating_panel()
-    _, entities = an.operating_factor_model(panel)
-    betas = entities["freight_beta"].astype(float).sort_values(ascending=False)
 
-    actual = panel[panel["is_actual"] == 1]
-    f = actual["freight_rate_index"].to_numpy()
-    from_actual = {
-        e: float(np.cov(actual[f"{e}_growth"].to_numpy(), f, ddof=1)[0, 1]
-                 / np.var(f, ddof=1))
-        for e in cfg.OPERATING_ENTITIES
-    }
-    top_actual = set(sorted(from_actual, key=from_actual.get, reverse=True)[:2])
-    assert set(betas.index[:2]) == top_actual, f"{betas.to_dict()} vs {from_actual}"
+def test_the_portfolio_is_marked_above_cost():
+    prices = an.load_prices()
+    assert an.portfolio_value(prices) > cfg.OPENING_CAPITAL
 
-    # And the separation between the pairs must be material, or the section
-    # says nothing about who is exposed.
-    assert betas.iloc[1] - betas.iloc[2] > 0.2, f"pairs not separated: {betas.to_dict()}"
+
+def test_weights_drift_because_nothing_is_rebalanced():
+    """The concentration breach is caused by drift, not by a purchase."""
+    prices = an.load_prices()
+    h = an.holdings_table(prices)
+    drift = (h["weight"].astype(float) - h["opening_weight"].astype(float)).abs()
+    assert drift.max() > 0.02, "weights should have moved materially"
+
+
+def test_peak_weight_identifies_the_concentrated_holding():
+    prices = an.load_prices()
+    ticker, weight = an.peak_weight(prices)
+    assert ticker in cfg.TICKERS
+    assert weight > cfg.POLICY["max_weight"], "the planted breach must be reachable"

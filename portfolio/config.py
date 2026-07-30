@@ -21,7 +21,7 @@ LEDGER_DIR = REPO_ROOT / "data_compact" / "csv"
 
 FACTORS_CSV = DATA_DIR / "ff_factors_daily.csv"
 RETURNS_CSV = DATA_DIR / "portfolio_returns_daily.csv"
-OPERATING_CSV = DATA_DIR / "operating_factors_monthly.csv"
+PRICES_CSV = DATA_DIR / "holdings_prices_daily.csv"
 ARTIFACT_HTML = REPO_ROOT / "portfolio-tearsheet-jul2026.html"
 
 # --------------------------------------------------------------------------- #
@@ -40,14 +40,11 @@ ALLOWED_WINDOWS = (21, 63, 126)
 #  Market model
 # --------------------------------------------------------------------------- #
 RF_ANNUAL = 0.043             # risk-free rate, constant over the sample
-FEE_ANNUAL = 0.0045           # 45bp management fee, netted out of the series
+FEE_ANNUAL = 0.0045           # 45bp holding-company management charge
 
-# Portfolio size is DERIVED from the ledger, not assumed -- see portfolio.ledger.
-# It was hardcoded at $9.0M, which exceeded the group's entire cash balance
-# ($6.14M at 30 Jun 2026) and so could not have existed. Every breach on the page
-# is sized off this figure, so getting it wrong inflated all three.
-OPENING_CASH = 12_000_000.0   # mirrors streamlit_app.OPENING["cash"]; a test ties them
-BUFFER_MONTHS = 2             # months of operating cash held back before investing
+# Cost basis of the four stakes, mirroring streamlit_app.OPENING["capital"] --
+# what the members actually put in. A test ties the two together.
+OPENING_CAPITAL = 24_300_000.0
 
 # Daily standard deviations. Mkt-RF ~16%/yr; style factors are long/short and
 # therefore much less volatile.
@@ -59,8 +56,7 @@ FACTOR_VOL = {
     "CMA": 0.0040,
 }
 
-# Annualized risk premia earned by each factor over the sample. These are what
-# CAPM cannot see, and therefore what it misattributes to alpha.
+# Annualized risk premia earned by each factor over the sample.
 FACTOR_PREMIUM = {
     "Mkt-RF": 0.080,
     "SMB": 0.030,
@@ -69,21 +65,66 @@ FACTOR_PREMIUM = {
     "CMA": 0.010,
 }
 
-# Two regimes. FY2025 is defensive and value-tilted; FY2026 rotates into
-# high-beta small-cap growth. `alpha` is TRUE annualized alpha, deliberately
-# tiny -- the ~+2% that CAPM will report is factor premia, not skill.
-REGIMES = {
-    "FY2025": dict(mkt=0.85, smb=-0.15, hml=0.45, rmw=0.35, cma=0.05,
-                   idio=0.060, alpha=0.0025),
-    "FY2026": dict(mkt=1.31, smb=0.55, hml=-0.30, rmw=-0.20, cma=-0.10,
-                   idio=0.110, alpha=-0.0050),
+# --------------------------------------------------------------------------- #
+#  The portfolio: MHG's four operating stakes
+# --------------------------------------------------------------------------- #
+# Meridian Holdings Group is the investor; these are the positions. Ownership,
+# share counts and prices are MODELLED -- the ledger records the companies'
+# trading, not a cap table. Opening weights are their share of group revenue,
+# which is why MLG opens above the 40% concentration limit.
+#
+# Each holding re-rates at REGIME_SPLIT: the portfolio drifts from defensive
+# into high-beta small-cap growth without anyone rebalancing. `alpha` is TRUE
+# annualized alpha -- these are private stakes in businesses the holdco actively
+# operates, so genuine alpha is the premise of the strategy.
+HOLDINGS = {
+    "MLG": dict(
+        name="Meridian Logistics LLC", business="Freight brokerage & last mile",
+        ownership=1.00, weight=0.407, price=48.00, alpha=0.095,
+        fy25=dict(mkt=0.75, smb=-0.10, hml=0.40, rmw=0.30, cma=0.05, idio=0.070),
+        fy26=dict(mkt=1.15, smb=0.45, hml=-0.25, rmw=-0.15, cma=-0.10, idio=0.120),
+    ),
+    "CFS": dict(
+        name="Cascade Freight Systems Inc", business="Asset-based trucking",
+        ownership=0.80, weight=0.232, price=32.50, alpha=0.115,
+        fy25=dict(mkt=1.05, smb=0.10, hml=0.55, rmw=0.40, cma=0.05, idio=0.095),
+        fy26=dict(mkt=1.60, smb=0.75, hml=-0.35, rmw=-0.25, cma=-0.10, idio=0.150),
+    ),
+    "NWC": dict(
+        name="Northwind Cargo B.V.", business="EU forwarding, customs & TMS software",
+        ownership=0.75, weight=0.222, price=61.25, alpha=0.120,
+        fy25=dict(mkt=0.70, smb=-0.25, hml=0.35, rmw=0.35, cma=0.05, idio=0.080),
+        fy26=dict(mkt=1.10, smb=0.35, hml=-0.30, rmw=-0.20, cma=-0.10, idio=0.130),
+    ),
+    "APX": dict(
+        name="Apex Warehousing LLC", business="Warehousing & fulfillment (3PL)",
+        ownership=0.60, weight=0.139, price=27.80, alpha=0.080,
+        fy25=dict(mkt=0.65, smb=-0.20, hml=0.45, rmw=0.35, cma=0.05, idio=0.075),
+        fy26=dict(mkt=1.05, smb=0.40, hml=-0.30, rmw=-0.20, cma=-0.10, idio=0.125),
+    ),
 }
+TICKERS = list(HOLDINGS)
 
-# A six-week market selloff. Applied to the MARKET factor, not to the portfolio
-# directly: the drawdown must be something the portfolio amplified through its
-# drifted beta, not an unexplained idiosyncratic drag. Putting it in the
-# portfolio's residual instead would land the whole episode in the regression
-# intercept and destroy the alpha finding.
+
+def regime_of(timestamp) -> str:
+    """Which loading set applies on a given date."""
+    import pandas as pd
+    return "fy25" if pd.Timestamp(timestamp) < pd.Timestamp(REGIME_SPLIT) else "fy26"
+
+
+def expected_loading(regime: str, factor: str) -> float:
+    """Opening-weight average loading -- what a regression should recover.
+
+    Derived from HOLDINGS rather than stated separately, so the tests cannot
+    drift away from the generator.
+    """
+    return sum(h["weight"] * h[regime][factor] for h in HOLDINGS.values())
+
+
+# A six-week market selloff. Applied to the MARKET factor, not to any holding's
+# residual: the drawdown must be something the portfolio amplified through its
+# drifted beta, not an unexplained drag that would land in the regression
+# intercept and corrupt the alpha figure.
 SHOCK_START = "2026-02-02"
 SHOCK_END = "2026-03-13"
 SHOCK_DAILY = -0.0038         # daily excess-return drag on Mkt-RF
@@ -94,7 +135,7 @@ SHOCK_DAILY = -0.0038         # daily excess-return drag on Mkt-RF
 POLICY = {
     "max_beta": 1.00,         # rolling market beta ceiling
     "max_drawdown": 0.10,     # as a positive magnitude
-    "min_net_alpha": 0.0,     # FF5 alpha, net of fees
+    "max_weight": 0.40,       # single-position concentration ceiling
     "market_stress": 0.20,    # market decline used to size the beta breach
 }
 
@@ -111,32 +152,6 @@ FACTOR_DESCRIPTIONS = {
     "RMW": "Robust Minus Weak: high minus low profitability (profitability).",
     "CMA": "Conservative Minus Aggressive: low minus high investment (investment).",
     "RF": "Daily risk-free rate.",
-}
-
-# --------------------------------------------------------------------------- #
-#  Operating factor model (section 2)
-# --------------------------------------------------------------------------- #
-OPERATING_START = "2021-07"   # 36 months of MODELLED pre-history
-LEDGER_START = "2024-07"      # from here the revenue is ACTUAL
-LEDGER_END = "2026-06"
-# MHG is the holding company and books no invoice revenue.
-OPERATING_ENTITIES = ["MLG", "CFS", "NWC", "APX"]
-OPERATING_FACTORS = ["freight_rate_index", "diesel_price", "industrial_production"]
-# Group revenue growth per unit of the freight index. The index is the MODELLED
-# quantity and is derived from observed revenue over the ledger window, so this
-# sets how strongly the two are tied. Raise it and the freight coefficient falls.
-REVENUE_FREIGHT_BETA = 1.30
-FREIGHT_NOISE = 0.008      # measurement noise on the derived index
-OPERATING_IDIO = 0.018     # idiosyncratic monthly revenue noise, pre-history
-OPERATING_FACTOR_DESCRIPTIONS = {
-    "freight_rate_index": "Spot truckload rate index, month-on-month change.",
-    "diesel_price": "Diesel price, month-on-month change (a cost input).",
-    "industrial_production": "Industrial production index, month-on-month change.",
-}
-OPERATING_FACTOR_LABELS = {
-    "freight_rate_index": "Freight rate index",
-    "diesel_price": "Diesel price",
-    "industrial_production": "Industrial production",
 }
 
 # --------------------------------------------------------------------------- #

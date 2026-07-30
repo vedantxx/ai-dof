@@ -10,7 +10,8 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 from portfolio import config as cfg
-from portfolio.analytics import AnalysisResult, drawdown_series, wealth_index
+from portfolio.analytics import (AnalysisResult, drawdown_series, load_prices,
+                                 position_values, wealth_index)
 
 _PAPER = "rgba(0,0,0,0)"   # panels supply the background, in both themes
 _FONT = "Inter, 'Segoe UI', system-ui, sans-serif"
@@ -137,31 +138,24 @@ def build_factor_loadings_bar(res: AnalysisResult) -> str:
     return _html(fig, "chart-loadings")
 
 
-def build_operating_loadings(res: AnalysisResult) -> str:
-    """Per-entity revenue sensitivity to the freight cycle.
+def build_holdings_value(res: AnalysisResult) -> str:
+    """Position value per holding over time -- where the concentration comes from."""
+    prices = load_prices()
+    values = position_values(prices) / 1e6
+    order = res.holdings.sort_values("value", ascending=False).index
+    palette = [_ACCENT, _ACCENT_2, _WARN, _MUTED]
 
-    One series, not three: the per-entity multivariate coefficients on the other
-    two macro factors are not identified well enough at 59 observations to put on
-    a chart. See operating_factor_model.
-    """
-    ent = res.operating_entities.sort_values("freight_beta", ascending=False)
-    betas = ent["freight_beta"].astype(float)
-    # Every entity sits above 1.0, so a 1.0 threshold colours them all the same.
-    # Split on 1.25 instead: that is where the freight-exposed pair separates
-    # from the contract-based pair.
-    fig = go.Figure(go.Bar(
-        x=list(ent.index), y=betas.values,
-        marker_color=[_ACCENT if b >= 1.25 else _ACCENT_2 for b in betas],
-        text=[f"{b:.2f}" for b in betas], textposition="outside",
-        hovertext=[f"R²={float(ent.loc[e, 'r_squared']):.2f}" for e in ent.index]))
-    fig.add_hline(y=1.0, line=dict(color="rgba(148,163,184,0.45)", width=1,
-                                   dash="dash"),
-                  annotation_text="moves 1:1 with the freight cycle",
-                  annotation_position="bottom left",
-                  annotation_font=dict(color=_MUTED, size=10))
+    fig = go.Figure()
+    for colour, ticker in zip(palette, order):
+        fig.add_trace(go.Scatter(
+            x=values.index, y=values[ticker], name=ticker, mode="lines",
+            line=dict(width=0.5, color=colour), stackgroup="one",
+            fillcolor=_fill(colour, 0.55),
+            hovertemplate=ticker + ": $%{y:.2f}M<extra></extra>"))
     fig.update_layout(**_layout(
-        "Revenue Beta to the Freight Cycle, by Entity", height=360))
-    return _html(fig, "chart-operating")
+        "Position Value by Holding — $M, never rebalanced", height=360))
+    fig.update_yaxes(tickprefix="$", ticksuffix="M")
+    return _html(fig, "chart-holdings")
 
 
 def build_all_charts(res: AnalysisResult,
@@ -173,5 +167,5 @@ def build_all_charts(res: AnalysisResult,
         "rolling_sharpe": build_rolling_sharpe(res),
         "attribution": build_rolling_attribution(res),
         "loadings": build_factor_loadings_bar(res),
-        "operating": build_operating_loadings(res),
+        "holdings": build_holdings_value(res),
     }

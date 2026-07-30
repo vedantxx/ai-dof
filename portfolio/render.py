@@ -108,11 +108,27 @@ def _theme_css(theme: str) -> str:
             ".breach-body .risk{color:#B3261E;}")
 
 
+def _holding_rows(res: AnalysisResult) -> list[dict]:
+    h = res.holdings.sort_values("value", ascending=False)
+    return [dict(
+        ticker=t,
+        name=h.loc[t, "name"],
+        business=h.loc[t, "business"],
+        ownership=f"{float(h.loc[t, 'ownership']):.0%}",
+        shares=f"{float(h.loc[t, 'shares']):,.0f}",
+        price=f"${float(h.loc[t, 'price']):,.2f}",
+        price_open=f"${float(h.loc[t, 'price_open']):,.2f}",
+        cost=_money(float(h.loc[t, "cost"])),
+        value=_money(float(h.loc[t, "value"])),
+        gain=_money(float(h.loc[t, "gain"])),
+        weight=f"{float(h.loc[t, 'weight']):.1%}",
+        total_return=f"{float(h.loc[t, 'total_return']):+.1%}",
+        over_limit=float(h.loc[t, "weight"]) > cfg.POLICY["max_weight"],
+    ) for t in h.index]
+
+
 def _view_model(res: AnalysisResult, theme: str = cfg.DEFAULT_THEME) -> dict:
-    ent = res.operating_entities
-    betas = ent["freight_beta"].astype(float).sort_values(ascending=False)
-    exposed = ", ".join(betas.index[:2])
-    defensive = ", ".join(betas.index[2:])
+    gain = res.notional - res.cost_basis
     return dict(
         inline_css=_CSS.read_text(encoding="utf-8") + _theme_css(theme),
         inline_plotly=_plotly_js(),
@@ -122,7 +138,6 @@ def _view_model(res: AnalysisResult, theme: str = cfg.DEFAULT_THEME) -> dict:
         end_date=res.returns.index.max().strftime("%d %b %Y"),
         window=res.window,
         notional=_money(res.notional),
-        buffer_months=cfg.BUFFER_MONTHS,
         factor_source=res.factor_source,
         factor_is_synthetic=res.factor_is_synthetic,
         breach_count=sum(1 for b in res.breaches if b.breached),
@@ -139,20 +154,11 @@ def _view_model(res: AnalysisResult, theme: str = cfg.DEFAULT_THEME) -> dict:
         capm_rows=_loading_rows(res.capm),
         capm_alpha=_pct(res.capm.alpha_annualized),
         ff5_alpha=_pct(res.ff5.alpha_annualized),
-        operating_rows=_loading_rows(res.operating_group),
-        operating_r2=res.operating_group.r_squared,
-        operating_n=res.operating_group.nobs,
-        operating_actual_n=res.operating_actual_n,
-        entity_rows=[dict(entity=e,
-                          freight=_num(float(ent.loc[e, "freight_beta"]), 2),
-                          tstat=_num(float(ent.loc[e, "tstat"]), 2),
-                          r2=_num(float(ent.loc[e, "r_squared"]), 3))
-                     for e in ent.index],
-        operating_note=(
-            f"{exposed} amplify the freight cycle at a beta near "
-            f"{betas.iloc[:2].mean():.1f}; {defensive} sit near 1.0. The top two are "
-            f"within {abs(betas.iloc[0] - betas.iloc[1]):.2f} of each other and are not "
-            f"separable — a downturn in spot rates lands on both first."),
+        holding_rows=_holding_rows(res),
+        cost_basis=_money(res.cost_basis),
+        portfolio_gain=_money(gain),
+        portfolio_gain_pct=f"{gain / res.cost_basis:+.1%}",
+        max_weight=f"{cfg.POLICY['max_weight']:.0%}",
     )
 
 

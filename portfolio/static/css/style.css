@@ -238,3 +238,9 @@ body {
 .entity-table th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
 .entity-table td:first-child, .entity-table th:first-child { text-align: left; }
 .entity-table .mono { font-family: var(--mono); }
+
+/* ---------- Holdings card (not in the reference) ---------- */
+.holdings-table td { vertical-align: top; }
+.holding-biz { font-size: 11px; color: var(--muted-2); font-weight: 400; margin-top: 2px; }
+.factor-table td.pos { color: var(--accent); }
+.weight-over { color: var(--danger); font-weight: 600; }
