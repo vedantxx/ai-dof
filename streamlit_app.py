@@ -19,7 +19,9 @@ Run locally:   streamlit run streamlit_app.py
 """
 
 from __future__ import annotations
+import hashlib
 import itertools
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -234,6 +236,51 @@ def budget_model(E):
     return df, qx, budget_cum, actual_cum
 
 
+TTM = ["2025-Q3", "2025-Q4", "2026-Q1", "2026-Q2"]   # trailing twelve months
+
+
+def kpi_ratios(E, ni, rev, bs_df):
+    """Headline ratios on a trailing-twelve-month basis.
+
+    TTM rather than fiscal year: FY2026 is a half-year in this dataset, so a
+    fiscal-year figure would either be half-sized or an annualised guess. The
+    trailing four quarters are all actual.
+    """
+    activity = E["activity"]
+    cogs_ttm = sum(activity(a, TTM) for a in E["cogs"])
+    rev_ttm = rev(TTM)
+    opex_ttm = sum(activity(a, TTM) for _, accs, _, _, _ in OPEX_CATS
+                   for a in accs if a in E["accounts"])
+    dep_ttm = sum(activity(a, TTM) for a in ["6700"] if a in E["accounts"])
+    ebit_ttm = rev_ttm - cogs_ttm - opex_ttm
+    ni_ttm = ni(TTM)
+
+    at = lambda row: float(bs_df.loc[row, "2026-Q2"])
+    cash, ar_gross, allowance = at("Cash & bank"), at("Accounts receivable, gross"), \
+        at("Allowance for doubtful accounts")
+    ap, notes, equity = at("Accounts payable"), at("Equipment notes payable"), \
+        at("Total equity")
+    ar_net = ar_gross + allowance          # allowance is carried negative
+    current_assets, current_liabs = cash + ar_net, ap
+    # Cash operating cost excludes depreciation, which does not consume cash.
+    monthly_burn = (cogs_ttm + opex_ttm - dep_ttm) / 12
+
+    return dict(
+        rev_ttm=rev_ttm, ebitda=ebit_ttm + dep_ttm, ebit=ebit_ttm, ni=ni_ttm,
+        gross_margin=(rev_ttm - cogs_ttm) / rev_ttm,
+        ebitda_margin=(ebit_ttm + dep_ttm) / rev_ttm,
+        net_margin=ni_ttm / rev_ttm,
+        roe=ni_ttm / equity,
+        current_ratio=current_assets / current_liabs,
+        working_capital=current_assets - current_liabs,
+        net_debt=notes - cash,
+        dso=ar_net / rev_ttm * 365,
+        dpo=ap / cogs_ttm * 365,
+        runway=cash / monthly_burn,
+        cash=cash, equity=equity, ar_net=ar_net,
+    )
+
+
 @st.cache_data(show_spinner=False)
 def ar_analysis(_inv: pd.DataFrame):
     inv = _inv.copy()
@@ -391,6 +438,56 @@ def inject_theme_css(theme: str) -> None:
         </style>""", unsafe_allow_html=True)
 
 
+# Embedded documents are written to disk and shown with st.iframe(height="content"),
+# which sizes the frame to its content so the page has ONE scrollbar. The obvious
+# alternatives both fail: components.html takes a fixed height and gives the
+# document its own scrollbar, and the streamlit:setFrameHeight message that custom
+# components use is ignored for static HTML.
+EMBED_DIR = Path(tempfile.gettempdir()) / "ai-dof-embeds"
+
+
+# The CFO review dashboard is variable-driven, so dark mode is an override of its
+# own :root rather than a rewrite. Its body background is hardcoded, hence the
+# explicit rule.
+_CFO_DARK_CSS = """
+<style>
+:root{
+  --ink:#e2e8f0 !important; --ink-2:#cbd5e1 !important; --slate:#94a3b8 !important;
+  --mute:#7b8aa3 !important; --line:rgba(96,165,250,0.18) !important;
+  --line-2:rgba(96,165,250,0.10) !important; --canvas:#0a0e17 !important;
+  --card:#131a2b !important;
+  /* --brand is a BACKGROUND here (the masthead), not an accent: lightening it to
+     #60a5fa produced a bright blue block with pale text on it. */
+  --brand:#16233d !important; --brand-2:#7fb3ff !important;
+  --critical:#f87171 !important; --critical-bg:rgba(248,113,113,0.12) !important;
+  --high:#fbbf24 !important;    --high-bg:rgba(251,191,36,0.12) !important;
+  --medium:#e9c46a !important;  --medium-bg:rgba(233,196,106,0.10) !important;
+  --low:#86efac !important;     --low-bg:rgba(134,239,172,0.10) !important;
+  --ok:#4ade80 !important;      --ok-bg:rgba(74,222,128,0.12) !important;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 4px 14px rgba(0,0,0,.35) !important;
+}
+html, body { background:#0a0e17 !important; color:var(--ink) !important; }
+table, th, td { border-color:var(--line) !important; }
+thead th { background:rgba(96,165,250,0.06) !important; }
+</style>
+"""
+
+
+def embed_document(html: str, theme: str, extra_css: str = "") -> None:
+    """Embed a self-contained HTML document with one scrollbar, not two."""
+    if extra_css:
+        if "</head>" in html:
+            html = html.replace("</head>", extra_css + "</head>", 1)
+        else:
+            html = extra_css + html
+    EMBED_DIR.mkdir(parents=True, exist_ok=True)
+    # Content-addressed, so a given theme/window renders to one stable file.
+    path = EMBED_DIR / f"{hashlib.sha256(html.encode()).hexdigest()[:16]}.html"
+    if not path.exists():
+        path.write_text(html, encoding="utf-8")
+    st.iframe(path, height="content", width="stretch")
+
+
 def style_fig(fig, theme: str):
     """Apply the active palette to a Plotly figure built for either theme."""
     p = theme_palette(theme)
@@ -513,6 +610,43 @@ elif page == "Financial statements":
     st.title("Financial statements")
     st.caption("Consolidated · USD · EUR entity at 1.09 · intercompany eliminated · "
                "FY2026 is a half-year (H1) — the year is still in progress")
+
+    k = kpi_ratios(E, ni, rev, bs_df)
+    st.markdown("##### Trailing twelve months · Jul 2025 → Jun 2026")
+    c = st.columns(4)
+    c[0].metric("Revenue", money(k["rev_ttm"]))
+    c[1].metric("EBITDA", money(k["ebitda"]), f"{k['ebitda_margin']*100:.1f}% margin")
+    c[2].metric("Net income", money(k["ni"]), f"{k['net_margin']*100:.1f}% margin",
+                delta_color="inverse" if k["ni"] < 0 else "normal")
+    c[3].metric("Return on equity", f"{k['roe']*100:.1f}%",
+                delta_color="inverse" if k["roe"] < 0 else "normal")
+
+    st.markdown("##### Liquidity & working capital · as at 30 Jun 2026")
+    c = st.columns(4)
+    c[0].metric("Current ratio", f"{k['current_ratio']:.2f}×",
+                f"working capital {money(k['working_capital'])}")
+    c[1].metric("Net debt", money(k["net_debt"]),
+                "notes payable less cash",
+                delta_color="inverse" if k["net_debt"] > 0 else "normal")
+    c[2].metric("DSO", f"{k['dso']:.0f} days", f"DPO {k['dpo']:.0f} days")
+    c[3].metric("Cash runway", f"{k['runway']:.1f} months",
+                "at the trailing cash cost")
+    st.info(
+        f"Two things stand out. The group is essentially **EBITDA-breakeven** on a "
+        f"trailing basis ({k['ebitda_margin']*100:.1f}% margin on "
+        f"{money(k['rev_ttm'])} of revenue), so there is no operating cushion under "
+        f"the {money(abs(k['ni']))} loss. And it collects in {k['dso']:.0f} days while "
+        f"paying in {k['dpo']:.0f} — a {k['dso'] - k['dpo']:.0f}-day gap it funds from "
+        f"its own balance sheet, which is what leaves {k['runway']:.1f} months of "
+        f"runway on {money(k['cash'])} of cash.")
+    st.caption(
+        "Ratios use the trailing four quarters of actual ledger activity; "
+        "balance-sheet inputs sit on the modelled opening position. Current "
+        "liabilities are accounts payable only — this ledger carries no accruals or "
+        "current portion of debt, which is why the current ratio reads high. Cash "
+        "runway excludes depreciation, which does not consume cash.")
+    st.markdown("")
+
     t1, t2, t3 = st.tabs(["Income statement", "Balance sheet", "Cash flow"])
     with t1:
         st.dataframe(fmt_df(is_df, ["Gross margin %"]), use_container_width=True, height=560)
@@ -640,13 +774,12 @@ elif page == "Portfolio & factors":
         # components.html despite the deprecation notice: st.iframe takes a src
         # path or URL, not a rendered HTML string, and the iframe sandbox is what
         # stops the tearsheet's dark stylesheet leaking into the Streamlit chrome.
-        components.html(portfolio_tearsheet(window, theme), height=3600,
-                        scrolling=True)
+        embed_document(portfolio_tearsheet(window, theme), theme)
 
 # ----------------------------------------------------------------- Details - #
 elif page == "Details":
     st.title("CFO review — detail")
-    st.caption("The full CFO review dashboard, embedded. Recoloured to the app's palette.")
+    st.caption("The full CFO review dashboard, embedded. Follows the app theme.")
 
     # One card carrying the portfolio tearsheet's conclusion, so the review page
     # opens with it rather than requiring a trip to the other tab.
@@ -668,13 +801,13 @@ elif page == "Details":
                 f"limit · full detail on the Portfolio & factors page.")
     if CFO_HTML.exists():
         html = CFO_HTML.read_text(encoding="utf-8")
-        # recolour: shift the dashboard brand from navy to the app's teal/green scheme
-        recolor = (
-            "<style>:root{--brand:#0F5132 !important;--brand-2:#198754 !important;}"
-            "body{--brand:#0F5132;--brand-2:#198754;}</style>"
-        )
-        html = html.replace("</head>", recolor + "</head>")
-        components.html(html, height=2400, scrolling=True)
+        if theme == "dark":
+            extra = _CFO_DARK_CSS
+        else:
+            # Light mode keeps the review's own palette, shifted to the app's teal.
+            extra = ("<style>:root{--brand:#0F5132 !important;"
+                     "--brand-2:#198754 !important;}</style>")
+        embed_document(html, theme, extra)
     else:
         st.error("cfo-review-ai-dof-command-centre-jul2026.html not found in the repo root.")
 
