@@ -86,3 +86,47 @@ def test_generator_is_deterministic():
     subprocess.run([sys.executable, "generate_treasury_data.py"],
                    cwd=cfg.REPO_ROOT, check=True, capture_output=True)
     assert cfg.RETURNS_CSV.read_bytes() == before, "same seed must give identical bytes"
+
+
+# ------------------------------------------------- operating factor panel -- #
+@pytest.fixture(scope="module")
+def operating() -> pd.DataFrame:
+    return pd.read_csv(cfg.OPERATING_CSV)
+
+
+def test_operating_panel_covers_the_full_history(operating):
+    # 60 months of levels give 59 growth rates: the first month has no prior.
+    assert len(operating) == 59
+    assert operating["month"].iloc[0] == "2021-08"
+    assert operating["month"].iloc[-1] == cfg.LEDGER_END
+    assert operating["month"].is_monotonic_increasing
+
+
+def test_operating_panel_columns(operating):
+    for e in cfg.OPERATING_ENTITIES:
+        assert f"{e}_growth" in operating.columns
+    assert "group_growth" in operating.columns
+    assert "is_actual" in operating.columns
+    for f in cfg.OPERATING_FACTORS:
+        assert f in operating.columns
+    assert "MHG_growth" not in operating.columns, "holdco books no invoice revenue"
+
+
+def test_last_twenty_three_months_are_flagged_actual(operating):
+    # The ledger's first month (2024-07) has no prior month inside the ledger,
+    # so its growth rate is undefined and it is not flagged actual.
+    actual = operating[operating["is_actual"] == 1]
+    assert len(actual) == 23
+    assert actual["month"].iloc[0] == "2024-08"
+    assert actual["month"].iloc[-1] == cfg.LEDGER_END
+
+
+def test_actual_revenue_growth_reconciles_to_the_ledger(operating):
+    """The overlap is ACTUAL ledger revenue, not modelled. If this drifts, the
+    section-2 regression is no longer about Meridian."""
+    from generate_treasury_data import ledger_monthly_revenue
+
+    ledger = ledger_monthly_revenue()
+    expected = ledger["GROUP"].pct_change().dropna()
+    got = operating.set_index("month").loc[expected.index, "group_growth"]
+    assert np.allclose(got.values, expected.values, atol=1e-5)

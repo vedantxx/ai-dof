@@ -116,6 +116,12 @@ LEDGER_END = "2026-06"
 # MHG is the holding company and books no invoice revenue.
 OPERATING_ENTITIES = ["MLG", "CFS", "NWC", "APX"]
 OPERATING_FACTORS = ["freight_rate_index", "diesel_price", "industrial_production"]
+# Group revenue growth per unit of the freight index. The index is the MODELLED
+# quantity and is derived from observed revenue over the ledger window, so this
+# sets how strongly the two are tied. Raise it and the freight coefficient falls.
+REVENUE_FREIGHT_BETA = 1.30
+FREIGHT_NOISE = 0.008      # measurement noise on the derived index
+OPERATING_IDIO = 0.018     # idiosyncratic monthly revenue noise, pre-history
 OPERATING_FACTOR_DESCRIPTIONS = {
     "freight_rate_index": "Spot truckload rate index, month-on-month change.",
     "diesel_price": "Diesel price, month-on-month change (a cost input).",

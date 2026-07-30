@@ -496,3 +496,43 @@ def policy_check(perf: PerformanceStats, capm: RegressionResult,
     )
 
     return [beta, drawdown, alpha]
+
+
+# --------------------------------------------------------------------------- #
+#  6. Operating factor model -- the same technique on the group's own revenue
+# --------------------------------------------------------------------------- #
+def load_operating_panel() -> pd.DataFrame:
+    """Monthly revenue growth and freight-market factors."""
+    if not cfg.OPERATING_CSV.exists():
+        raise FileNotFoundError(
+            f"Operating panel not found at {cfg.OPERATING_CSV}. "
+            "Run: python3 generate_treasury_data.py"
+        )
+    return pd.read_csv(cfg.OPERATING_CSV)
+
+
+def operating_factor_model(panel: pd.DataFrame
+                           ) -> tuple[RegressionResult, pd.DataFrame]:
+    """Regress revenue growth on freight-market factors.
+
+    Same machinery as the portfolio tearsheet, pointed at the operating
+    business: which macro factors move Meridian's revenue, and which entities
+    amplify the cycle. Run on 59 monthly observations -- 23 actual, the rest
+    modelled pre-history -- because three factors cannot be estimated from two
+    dozen points.
+    """
+    X = panel[cfg.OPERATING_FACTORS]
+    group = _ols(panel["group_growth"], X, label="Group revenue growth")
+    for l in group.loadings:
+        if l.name != "Alpha":
+            l.description = cfg.OPERATING_FACTOR_DESCRIPTIONS.get(l.name, "")
+
+    rows = {}
+    for entity in cfg.OPERATING_ENTITIES:
+        res = _ols(panel[f"{entity}_growth"], X, label=entity)
+        row = {f: res.loading(f).coef for f in cfg.OPERATING_FACTORS}
+        row["r_squared"] = res.r_squared
+        rows[entity] = row
+    entities = pd.DataFrame(rows).T.reindex(cfg.OPERATING_ENTITIES)
+    entities.index.name = "entity"
+    return group, entities

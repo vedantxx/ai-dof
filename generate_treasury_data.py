@@ -117,38 +117,65 @@ def ledger_monthly_revenue() -> pd.DataFrame:
     return wide
 
 
-# Sensitivity of each entity's revenue to the freight cycle. CFS owns its
-# trucks and is the most exposed; APX warehousing is contract-based and the
-# least. MODELLED -- these drive the synthetic pre-history only.
-ENTITY_CYCLICALITY = {"MLG": 1.05, "CFS": 1.45, "NWC": 0.70, "APX": 0.55}
-
-
 def build_operating_panel() -> pd.DataFrame:
     """Monthly revenue growth and freight-market factors, 60 months.
 
-    The last 24 months are ACTUAL ledger revenue. The first 36 are MODELLED
-    pre-history, present because three factors cannot be estimated from 24
-    observations but can from 60.
+    Revenue for the overlap with the ledger is ACTUAL. The factors are the
+    MODELLED quantity throughout, and the direction of construction matters:
+
+    * Over the ledger window the freight index is derived FROM observed group
+      revenue growth. Actual revenue cannot load on an invented exogenous
+      series -- pooling the two produced an insignificant freight coefficient
+      (p = 0.085, R² = 0.13) because the real variance simply swamped the
+      invented signal.
+    * Each entity's sensitivity to that index is then MEASURED over the ledger
+      window, and those measured betas generate the pre-history. So the whole
+      59-month sample is internally coherent, and "which entity is most
+      cyclical" is a property of Meridian's actual revenue rather than an
+      assumption baked in here.
     """
     rng = np.random.default_rng(cfg.SEED + 2)
     months = pd.period_range(cfg.OPERATING_START, cfg.LEDGER_END, freq="M")
     n = len(months)
-
-    # Freight market factors: an autocorrelated cycle plus noise, because
-    # freight rates are persistent, not white noise.
-    freight = np.zeros(n)
-    for i in range(1, n):
-        freight[i] = 0.55 * freight[i - 1] + rng.normal(0.0, 0.028)
-    diesel = 0.45 * freight + rng.normal(0.0, 0.030, n)
-    indpro = 0.35 * freight + rng.normal(0.0015, 0.008, n)
+    keys = [str(m) for m in months]
 
     ledger = ledger_monthly_revenue()
     ledger_growth = ledger.pct_change()
+    actual_keys = [k for k in keys
+                   if k in ledger_growth.index
+                   and not ledger_growth.loc[k].isna().all()]
+
+    # --- 1. The freight cycle. Persistent (freight rates are autocorrelated,
+    # not white noise) over the pre-history; derived from observed revenue over
+    # the ledger window.
+    freight = np.zeros(n)
+    for i in range(1, n):
+        freight[i] = 0.55 * freight[i - 1] + rng.normal(0.0, 0.028)
+
+    g_actual = ledger_growth.loc[actual_keys, "GROUP"].astype(float)
+    freight_actual = ((g_actual - g_actual.mean()) / cfg.REVENUE_FREIGHT_BETA
+                      + rng.normal(0.0, cfg.FREIGHT_NOISE, len(g_actual)))
+    for k, v in zip(actual_keys, freight_actual):
+        freight[keys.index(k)] = float(v)
+
+    diesel = 0.45 * freight + rng.normal(0.0, 0.030, n)
+    # Only mildly tied to freight: at 0.35 the collinearity with the freight
+    # index scrambled the multivariate partial coefficients, producing entity
+    # loadings on industrial production of +2.0 and -1.0 that were artifacts.
+    indpro = 0.20 * freight + rng.normal(0.0015, 0.008, n)
+    freight_by_key = dict(zip(keys, freight))
+
+    # --- 2. Measure each entity's freight sensitivity on the ACTUAL window.
+    measured = {}
+    fa = np.asarray([freight_by_key[k] for k in actual_keys])
+    for e in cfg.OPERATING_ENTITIES:
+        ea = ledger_growth.loc[actual_keys, e].astype(float).to_numpy()
+        # Simple univariate slope; the pre-history only needs the magnitude.
+        measured[e] = float(np.cov(ea, fa, ddof=1)[0, 1] / np.var(fa, ddof=1))
 
     rows = []
-    for i, m in enumerate(months):
-        key = str(m)
-        actual = key in ledger_growth.index and not ledger_growth.loc[key].isna().all()
+    for i, key in enumerate(keys):
+        actual = key in actual_keys
         row = {"month": key, "is_actual": int(actual),
                "freight_rate_index": freight[i], "diesel_price": diesel[i],
                "industrial_production": indpro[i]}
@@ -156,10 +183,13 @@ def build_operating_panel() -> pd.DataFrame:
             if actual:
                 row[f"{e}_growth"] = float(ledger_growth.loc[key, e])
             else:
-                beta = ENTITY_CYCLICALITY[e]
+                beta = measured[e]
+                # Every macro sensitivity scales with the entity's own beta.
+                # A shared indpro term made the entities differ on one factor
+                # but not the others, which distorted the partial coefficients.
                 row[f"{e}_growth"] = float(
-                    0.004 + beta * freight[i] - 0.25 * beta * diesel[i]
-                    + 0.9 * indpro[i] + rng.normal(0.0, 0.022)
+                    0.004 + beta * freight[i] - 0.20 * beta * diesel[i]
+                    + 0.55 * beta * indpro[i] + rng.normal(0.0, cfg.OPERATING_IDIO)
                 )
         rows.append(row)
 

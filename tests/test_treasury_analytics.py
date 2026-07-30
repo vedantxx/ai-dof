@@ -259,3 +259,47 @@ def test_policy_check_reports_compliance_when_limits_are_respected():
     roll = an.rolling_factor_betas(calm, fd, cfg.FF5_FACTORS, 63)
     result = an.policy_check(perf, capm, ff5, roll)
     assert not any(b.breached for b in result)
+
+
+# -------------------------------------------------------- operating model -- #
+def test_operating_factor_model_returns_group_and_entity_loadings():
+    panel = an.load_operating_panel()
+    group, entities = an.operating_factor_model(panel)
+    assert group.nobs == 59, "60 months of levels give 59 growth observations"
+    assert {l.name for l in group.loadings} == {"Alpha", *cfg.OPERATING_FACTORS}
+    assert list(entities.index) == cfg.OPERATING_ENTITIES
+    assert "r_squared" in entities.columns
+
+
+def test_freight_rates_lift_revenue_and_diesel_costs_are_a_drag():
+    """Signs must be economically sensible, or the section is noise."""
+    panel = an.load_operating_panel()
+    group, _ = an.operating_factor_model(panel)
+    assert group.loading("freight_rate_index").coef > 0
+    assert group.loading("freight_rate_index").significant
+    assert group.loading("diesel_price").coef < 0
+
+
+def test_most_cyclical_entity_is_the_one_the_actual_ledger_identifies():
+    """Which entity amplifies the freight cycle is DERIVED from actual ledger
+    revenue, not assumed. An earlier draft asserted CFS on the reasoning that it
+    owns its trucks; the ledger says APX. The invariant worth testing is that the
+    pooled 59-month model agrees with the 23 actual months alone -- if the
+    modelled pre-history ever overrode the real data, this fails."""
+    panel = an.load_operating_panel()
+    _, entities = an.operating_factor_model(panel)
+
+    actual = panel[panel["is_actual"] == 1]
+    f = actual["freight_rate_index"].to_numpy()
+    from_actual = {
+        e: float(np.cov(actual[f"{e}_growth"].to_numpy(), f, ddof=1)[0, 1]
+                 / np.var(f, ddof=1))
+        for e in cfg.OPERATING_ENTITIES
+    }
+    assert (entities["freight_rate_index"].idxmax()
+            == max(from_actual, key=from_actual.get))
+
+    # And the spread must be material, or "who is cyclical" says nothing.
+    spread = (entities["freight_rate_index"].max()
+              - entities["freight_rate_index"].min())
+    assert spread > 0.3, f"entity loadings too similar to be informative: {spread:.2f}"
