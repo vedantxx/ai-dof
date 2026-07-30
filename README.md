@@ -34,6 +34,20 @@ This project demonstrates that layer end to end, at a scale that would normally 
 └── cfo-review-ai-dof-command-centre-jul2026.html   Live output from the first real run
 ```
 
+## The pages
+
+| Page | What it carries |
+|---|---|
+| **Overview** | Headline KPIs, a live "needs action" strip drawn from every other page, revenue and margin by quarter, the entity scorecard joined to MHG's stake in each company, gross margin by entity (where the planted CFS erosion is visible), and a trailing-year cash bridge |
+| **Financial statements** | Trailing-twelve-month ratio cards — revenue, EBITDA, net income, ROE, current ratio, net debt, DSO/DPO, cash runway — over the income statement, balance sheet and cash flow |
+| **Budget tracker** | FY2025 closed over allocation, FY2026 in progress, cumulative actual vs plan |
+| **Portfolio & factors** | The quant tearsheet: holdings card, CAPM, Fama-French, rolling factor betas, policy compliance |
+| **Risk** | Receivables aging and collection risk, the AR control-account reconciliation, and the portfolio's three policy breaches with owners and dates |
+| **Details** | The full CFO review dashboard, embedded and themed |
+
+Navigation and the light/dark toggle sit in a top bar; there is no sidebar. The theme
+covers the app chrome, every chart, the portfolio tearsheet and the embedded CFO review.
+
 ## The dataset
 
 Meridian Holdings Group — a fictional logistics holdco with five entities across two currencies, 24 months to June 2026, roughly $21M annual revenue.

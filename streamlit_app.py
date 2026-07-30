@@ -7,7 +7,8 @@ Reads the consolidated ledger (data_compact/csv/) and reproduces, live:
   • Operating-expense budget vs actual — FY2025 (closed, over budget) and
     FY2026 (in progress, H1 only) — with a cumulative actual-vs-plan line
     and an allocation pie
-  • Accounts-receivable aging and customer collection risk
+  • Risk register: receivables aging, collection risk, the AR control-account
+    reconciliation, and the portfolio's investment-policy breaches
   • Details view: the full CFO review dashboard, embedded
 
 Data source: the CSVs committed in this repo (data_compact/csv/), which are
@@ -281,6 +282,171 @@ def kpi_ratios(E, ni, rev, bs_df):
     )
 
 
+PRIOR_TTM = ["2024-Q3", "2024-Q4", "2025-Q1", "2025-Q2"]   # the four before TTM
+
+
+def _entity_frames(L):
+    """Invoices and journal entries with a quarter column, for entity cuts."""
+    inv = L["inv"].copy()
+    inv["q"] = inv["Period"].map(_quarter)
+    inv["amt"] = pd.to_numeric(inv["TotalAmtUSD"], errors="coerce").fillna(0.0)
+    je = L["je"].copy()
+    je["q"] = je["Period"].map(_quarter)
+    je["amt"] = pd.to_numeric(je["AmountUSD"], errors="coerce").fillna(0.0)
+    je["cls"] = je["AccountNum"].astype(str).map(L["cls"])
+    return inv, je
+
+
+@st.cache_data(show_spinner=False)
+def entity_scorecard(_L) -> pd.DataFrame:
+    """Per-entity operating performance, joined to the portfolio position.
+
+    Revenue comes from invoices; cost of services from journal entries (no cost of
+    services is settled through the bank in this ledger). Both carry an Entity
+    column, so this needs no allocation assumptions.
+    """
+    inv, je = _entity_frames(_L)
+    cogs = je[je["cls"] == "Cost of Goods Sold"]
+
+    rows = {}
+    for ent in sorted(inv["Entity"].dropna().unique()):
+        rev_ttm = inv[(inv.Entity == ent) & (inv.q.isin(TTM))]["amt"].sum()
+        rev_prior = inv[(inv.Entity == ent) & (inv.q.isin(PRIOR_TTM))]["amt"].sum()
+        cogs_ttm = cogs[(cogs.Entity == ent) & (cogs.q.isin(TTM))]["amt"].sum()
+        rows[ent] = {
+            "Entity": ent,
+            "Business": ENTITY_NAMES.get(ent, ent),
+            "Revenue TTM": rev_ttm,
+            "Growth": rev_ttm / rev_prior - 1 if rev_prior else float("nan"),
+            "Gross margin": (rev_ttm - cogs_ttm) / rev_ttm if rev_ttm else float("nan"),
+        }
+    df = pd.DataFrame(rows).T
+    df["Share of group"] = df["Revenue TTM"] / df["Revenue TTM"].sum()
+
+    # Join the investor view: what MHG's stake in each is worth.
+    try:
+        from portfolio import analytics as pan, config as pcfg
+        if pcfg.PRICES_CSV.exists():
+            h = pan.holdings_table(pan.load_prices())
+            df["Weight"] = [float(h.loc[e, "weight"]) if e in h.index else float("nan")
+                            for e in df.index]
+            df["Since inception"] = [float(h.loc[e, "total_return"]) if e in h.index
+                                     else float("nan") for e in df.index]
+    except Exception:
+        pass
+    return df.sort_values("Revenue TTM", ascending=False)
+
+
+@st.cache_data(show_spinner=False)
+def cash_bridge(_L):
+    """Opening cash to closing cash over the trailing year, by driver.
+
+    Bank rows debit cash by their Amount, so a positive amount is cash in. The
+    journal-entry leg is kept separate rather than buried: it is the only cash that
+    does not pass through the bank file.
+    """
+    bank = _L["bank"].copy()
+    bank["q"] = bank["Period"].map(_quarter)
+    bank["amt"] = pd.to_numeric(bank["AmountUSD"], errors="coerce").fillna(0.0)
+    bank["cls"] = bank["CategoryAccountNum"].astype(str).map(_L["cls"])
+    bank["acct"] = bank["CategoryAccountNum"].astype(str)
+    b = bank[bank.q.isin(TTM)]
+
+    je = _L["je"].copy()
+    je["q"] = je["Period"].map(_quarter)
+    je["amt"] = pd.to_numeric(je["AmountUSD"], errors="coerce").fillna(0.0)
+    je_cash = je[(je.q.isin(TTM)) & (je["AccountNum"].astype(str) == "1000")]["amt"].sum()
+
+    collections = b[b.acct == "1100"]["amt"].sum()
+    operating = b[b.cls.isin(["Expense", "Cost of Goods Sold"])]["amt"].sum()
+    payables = b[b.acct == "2000"]["amt"].sum()
+    debt = b[b.acct == "2410"]["amt"].sum()
+    known = {"1100", "2000", "2410"}
+    other = b[~b.acct.isin(known)
+              & ~b.cls.isin(["Expense", "Cost of Goods Sold"])]["amt"].sum() + je_cash
+
+    return [("Customer collections", collections),
+            ("Operating payments", operating),
+            ("Supplier settlements", payables),
+            ("Debt repayment", debt),
+            ("Other movements", other)]
+
+
+@st.cache_data(show_spinner=False)
+def margin_trend(_L) -> pd.DataFrame:
+    """Gross margin by entity by quarter -- where the group figure is masked."""
+    inv, je = _entity_frames(_L)
+    cogs = je[je["cls"] == "Cost of Goods Sold"]
+    out = {}
+    for ent in sorted(inv["Entity"].dropna().unique()):
+        series = {}
+        for q in QUARTERS:
+            r = inv[(inv.Entity == ent) & (inv.q == q)]["amt"].sum()
+            c = cogs[(cogs.Entity == ent) & (cogs.q == q)]["amt"].sum()
+            series[q] = (r - c) / r if r else float("nan")
+        out[ent] = series
+    return pd.DataFrame(out)
+
+
+def alerts(k, bud, aging, ar_open) -> list[tuple[str, str]]:
+    """Everything across the app that needs a decision, most severe first."""
+    items = []
+    over90 = aging.loc[["91-120", "120+"], "sum"].sum()
+    if over90 > 0:
+        items.append(("critical",
+                      f"{money(over90)} of receivables is 90+ days old — "
+                      f"{over90 / ar_open * 100:.0f}% of the open book."))
+    if k["ebitda_margin"] < 0.02:
+        items.append(("critical",
+                      f"EBITDA margin is {k['ebitda_margin']*100:.1f}% on "
+                      f"{money(k['rev_ttm'])} of revenue — no operating cushion."))
+    if k["runway"] < 6:
+        items.append(("high", f"Cash runway is {k['runway']:.1f} months on "
+                              f"{money(k['cash'])} at the trailing cash cost."))
+    overs = int((bud["Util25"] > 1).sum())
+    if overs:
+        items.append(("high", f"{overs} of {len(bud)} expense categories closed FY2025 "
+                              f"over allocation, {money(bud['Act25'].sum() - bud['Alloc25'].sum())} "
+                              f"in total."))
+    if k["dso"] - k["dpo"] > 30:
+        items.append(("medium", f"Collections run {k['dso']:.0f} days against "
+                                f"{k['dpo']:.0f} days of payables — a "
+                                f"{k['dso'] - k['dpo']:.0f}-day funding gap."))
+    try:
+        summary = portfolio_summary()
+        if summary and not summary["breaches"].startswith("0"):
+            items.append(("high", f"Portfolio investment policy: {summary['breaches']} "
+                                  f"checks breached ({summary['breach_names']})."))
+    except Exception:
+        pass
+    order = {"critical": 0, "high": 1, "medium": 2}
+    return sorted(items, key=lambda i: order[i[0]])
+
+
+@st.cache_data(show_spinner=False)
+def ar_control_gap(_L):
+    """AR per the general ledger against the open-invoice subledger.
+
+    These should agree. They do not, and the difference is worth naming rather
+    than letting two pages quote different numbers.
+    """
+    inv = _L["inv"].copy()
+    inv["amt"] = pd.to_numeric(inv["TotalAmtUSD"], errors="coerce").fillna(0.0)
+    inv["bal"] = pd.to_numeric(inv["Balance"], errors="coerce").fillna(0.0)
+    je = _L["je"].copy()
+    je["amt"] = pd.to_numeric(je["AmountUSD"], errors="coerce").fillna(0.0)
+    bank = _L["bank"].copy()
+    bank["amt"] = pd.to_numeric(bank["AmountUSD"], errors="coerce").fillna(0.0)
+
+    invoiced = inv["amt"].sum()
+    je_adj = je[je["AccountNum"].astype(str) == "1100"]["amt"].sum()
+    collected = -bank[bank["CategoryAccountNum"].astype(str) == "1100"]["amt"].sum()
+    control = invoiced + je_adj + collected
+    subledger = inv[inv["Status"].str.lower() == "open"]["bal"].sum()
+    return dict(invoiced=invoiced, je_adj=je_adj, collected=collected,
+                control=control, subledger=subledger, gap=control - subledger)
+
+
 @st.cache_data(show_spinner=False)
 def ar_analysis(_inv: pd.DataFrame):
     inv = _inv.copy()
@@ -325,6 +491,20 @@ def portfolio_summary() -> dict | None:
     }
 
 
+@st.cache_data(show_spinner=False)
+def portfolio_policy() -> list[dict] | None:
+    """The portfolio's policy checks, for the risk register."""
+    from portfolio import analytics as pan, config as pcfg
+
+    if not pcfg.RETURNS_CSV.exists():
+        return None
+    res = pan.run_full_analysis(pan.load_returns(pcfg.RETURNS_CSV), try_live=False)
+    return [dict(check=b.check, observed=b.observed, limit=b.limit,
+                 breached=b.breached, cash=pan._money(b.cash_at_risk),
+                 owner=b.owner, due=b.due, action=b.action, why=b.why, risk=b.risk)
+            for b in res.breaches]
+
+
 @st.cache_data(show_spinner="Running the factor regressions…")
 def portfolio_tearsheet(window: int, theme: str) -> str:
     """Full portfolio analysis, rendered to a self-contained HTML page.
@@ -349,6 +529,16 @@ def money(v):
     if abs(v) >= 1e6: return f"${v/1e6:,.2f}M"
     if abs(v) >= 1e3: return f"${v/1e3:,.0f}k"
     return f"${v:,.0f}"
+
+
+def md(text: str) -> str:
+    """Escape money for markdown.
+
+    Streamlit renders $...$ as LaTeX, so a caption with two dollar amounts turns
+    the text between them into a maths block. Every markdown string that embeds
+    money() must go through this.
+    """
+    return text.replace("$", r"\$")
 
 
 def fmt_df(df, pct_rows=()):
@@ -399,6 +589,15 @@ def inject_theme_css(theme: str) -> None:
                          letter-spacing: 0.2px; }}
         .topbar-rule {{ height: 1px; background: {p['border']};
                         margin: 10px 0 18px; }}
+        /* Alert strip on the Overview page. */
+        .alert-row {{ display: flex; gap: 10px; align-items: flex-start;
+                      padding: 9px 12px; margin-bottom: 6px; border-radius: 8px;
+                      font-size: 13.5px; color: {p['text']};
+                      border: 1px solid {p['border']}; background: {p['panel']}; }}
+        .alert-dot {{ flex: 0 0 auto; line-height: 1.3; }}
+        .alert-critical {{ border-left: 3px solid #B3261E; }}
+        .alert-high {{ border-left: 3px solid #B45309; }}
+        .alert-medium {{ border-left: 3px solid #8A6D1F; }}
         </style>""", unsafe_allow_html=True)
 
     if theme != "dark":
@@ -534,7 +733,7 @@ total_ni = ni(QUARTERS)
 #  Top bar — brand, navigation, theme
 # --------------------------------------------------------------------------- #
 PAGES = ["Overview", "Financial statements", "Budget tracker",
-         "Receivables & risk", "Portfolio & factors", "Details"]
+         "Portfolio & factors", "Risk", "Details"]
 THEME_ICONS = {"dark": ":material/dark_mode:", "light": ":material/light_mode:"}
 
 # Seed the theme from the URL on first load so ?theme=light is shareable, then
@@ -578,6 +777,19 @@ if page == "Overview":
     c[2].metric("Net income (2 yr)", money(total_ni))
     c[3].metric("Cash, Jun 2026", money(cash_fn("2026-Q2")))
 
+    # ---- what needs a decision now ----------------------------------------
+    k = kpi_ratios(E, ni, rev, bs_df)
+    live = alerts(k, bud, aging, ar_open)
+    if live:
+        st.markdown("#### Needs action")
+        icon = {"critical": "🔴", "high": "🟠", "medium": "🟡"}
+        for severity, text in live:
+            st.markdown(
+                md(f"<div class='alert-row alert-{severity}'>"
+                   f"<span class='alert-dot'>{icon[severity]}</span>{text}</div>"),
+                unsafe_allow_html=True)
+        st.markdown("")
+
     st.markdown("#### Revenue and gross margin by quarter")
     q_rev = [rev([q]) for q in QUARTERS]
     q_gp = [rev([q]) - sum(E["activity"](a, [q]) for a in E["cogs"]) for q in QUARTERS]
@@ -596,14 +808,71 @@ if page == "Overview":
     st.info("Gross margin steps down 36.6% → 35.5% → 34.4% — the planted Cascade Freight "
             "erosion, masked at group level by Apex improving in step.")
 
-    st.markdown("#### The company")
-    st.dataframe(pd.DataFrame([
-        {"Entity": k, "Legal name": v, "Currency": "EUR" if k == "NWC" else "USD", "Role": role}
-        for (k, v), role in zip(ENTITY_NAMES.items(), [
-            "Holding company / shared services", "Freight brokerage & last mile",
-            "Asset-based trucking (acquired Mar-2024)", "EU forwarding, customs & TMS software",
-            "Warehousing & fulfillment (3PL)"])]),
-        hide_index=True, use_container_width=True)
+    # ---- entity scorecard: operating performance joined to the position ----
+    st.markdown("#### The operating companies")
+    sc = entity_scorecard(L)
+    show = pd.DataFrame({
+        "Entity": sc["Entity"],
+        "Legal name": [ENTITY_NAMES.get(e, e) for e in sc.index],
+        "Currency": ["EUR" if e == "NWC" else "USD" for e in sc.index],
+        "Revenue TTM": sc["Revenue TTM"].map(money),
+        "Growth": sc["Growth"].map(lambda v: f"{v*100:+.1f}%"),
+        "Gross margin": sc["Gross margin"].map(lambda v: f"{v*100:.1f}%"),
+        "Share of group": sc["Share of group"].map(lambda v: f"{v*100:.1f}%"),
+    })
+    if "Weight" in sc.columns:
+        show["Portfolio weight"] = sc["Weight"].map(
+            lambda v: "—" if v != v else f"{v*100:.1f}%")
+        show["Since inception"] = sc["Since inception"].map(
+            lambda v: "—" if v != v else f"{v*100:+.1f}%")
+    st.dataframe(show, hide_index=True, use_container_width=True)
+    st.caption(
+        "Revenue from invoices, cost of services from journal entries — both carry an "
+        "entity code, so nothing is allocated. The last two columns are MHG's stake in "
+        "each company, from the portfolio tearsheet. MHG itself books no invoice "
+        "revenue and so does not appear.")
+
+    # ---- margin trend: where the group figure hides the erosion ------------
+    st.markdown("#### Gross margin by entity")
+    mt = margin_trend(L)
+    figm = go.Figure()
+    for colour, ent in zip([NAVY, RED, TEAL, AMBER, SLATE], mt.columns):
+        figm.add_scatter(x=mt.index, y=mt[ent] * 100, name=ent, mode="lines+markers",
+                         line=dict(width=2.4, color=colour))
+    figm.update_layout(height=340, yaxis_title="Gross margin %",
+                       legend=dict(orientation="h", y=1.12),
+                       margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(style_fig(figm, theme), use_container_width=True)
+    first, last = mt.iloc[0], mt.iloc[-1]
+    worst = (last - first).idxmin()
+    st.caption(
+        f"{worst} has fallen {abs((last - first)[worst])*100:.1f} points over the eight "
+        f"quarters — the erosion the group line masks, because the others held or improved.")
+
+    # ---- cash bridge: why cash fell ---------------------------------------
+    st.markdown("#### Cash bridge — trailing twelve months")
+    opening = cash_fn("2025-Q2")
+    parts = cash_bridge(L)
+    figb = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=["absolute"] + ["relative"] * len(parts) + ["total"],
+        x=["Cash Jun 2025"] + [p[0] for p in parts] + ["Cash Jun 2026"],
+        y=[opening] + [p[1] for p in parts] + [None],
+        text=[money(opening)] + [money(p[1]) for p in parts]
+             + [money(cash_fn("2026-Q2"))],
+        textposition="outside",
+        connector=dict(line=dict(color=SLATE, width=1)),
+        increasing=dict(marker=dict(color=TEAL)),
+        decreasing=dict(marker=dict(color=RED)),
+        totals=dict(marker=dict(color=NAVY))))
+    figb.update_layout(height=400, yaxis_title="USD",
+                       margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+    st.plotly_chart(style_fig(figb, theme), use_container_width=True)
+    bridged = opening + sum(v for _, v in parts)
+    st.caption(md(
+        f"Collections of {money(parts[0][1])} did not cover operating payments, "
+        f"supplier settlements and debt service. Bridge ties to "
+        f"{money(bridged)} against {money(cash_fn('2026-Q2'))} on the balance sheet."))
 
 # --------------------------------------------------- Financial statements -- #
 elif page == "Financial statements":
@@ -615,7 +884,8 @@ elif page == "Financial statements":
     st.markdown("##### Trailing twelve months · Jul 2025 → Jun 2026")
     c = st.columns(4)
     c[0].metric("Revenue", money(k["rev_ttm"]))
-    c[1].metric("EBITDA", money(k["ebitda"]), f"{k['ebitda_margin']*100:.1f}% margin")
+    c[1].metric("EBITDA", money(k["ebitda"]), f"{k['ebitda_margin']*100:.1f}% margin",
+                delta_color="off")
     c[2].metric("Net income", money(k["ni"]), f"{k['net_margin']*100:.1f}% margin",
                 delta_color="inverse" if k["ni"] < 0 else "normal")
     c[3].metric("Return on equity", f"{k['roe']*100:.1f}%",
@@ -624,21 +894,22 @@ elif page == "Financial statements":
     st.markdown("##### Liquidity & working capital · as at 30 Jun 2026")
     c = st.columns(4)
     c[0].metric("Current ratio", f"{k['current_ratio']:.2f}×",
-                f"working capital {money(k['working_capital'])}")
+                f"working capital {money(k['working_capital'])}", delta_color="off")
     c[1].metric("Net debt", money(k["net_debt"]),
-                "notes payable less cash",
-                delta_color="inverse" if k["net_debt"] > 0 else "normal")
-    c[2].metric("DSO", f"{k['dso']:.0f} days", f"DPO {k['dpo']:.0f} days")
+                "net cash" if k["net_debt"] < 0 else "net borrowings",
+                delta_color="off")
+    c[2].metric("DSO", f"{k['dso']:.0f} days", f"DPO {k['dpo']:.0f} days",
+                delta_color="off")
     c[3].metric("Cash runway", f"{k['runway']:.1f} months",
-                "at the trailing cash cost")
-    st.info(
+                "at the trailing cash cost", delta_color="off")
+    st.info(md(
         f"Two things stand out. The group is essentially **EBITDA-breakeven** on a "
         f"trailing basis ({k['ebitda_margin']*100:.1f}% margin on "
         f"{money(k['rev_ttm'])} of revenue), so there is no operating cushion under "
         f"the {money(abs(k['ni']))} loss. And it collects in {k['dso']:.0f} days while "
         f"paying in {k['dpo']:.0f} — a {k['dso'] - k['dpo']:.0f}-day gap it funds from "
         f"its own balance sheet, which is what leaves {k['runway']:.1f} months of "
-        f"runway on {money(k['cash'])} of cash.")
+        f"runway on {money(k['cash'])} of cash."))
     st.caption(
         "Ratios use the trailing four quarters of actual ledger activity; "
         "balance-sheet inputs sit on the modelled opening position. Current "
@@ -725,26 +996,76 @@ elif page == "Budget tracker":
                            "FY25 util", "FY26 budget", "FY26 H1"]],
                      hide_index=True, use_container_width=True, height=430)
 
-# --------------------------------------------------- Receivables & risk --- #
-elif page == "Receivables & risk":
-    st.title("Accounts receivable & collection risk")
-    st.caption("Open invoices as at 30 Jun 2026")
-    c = st.columns(3)
+# ------------------------------------------------------------------ Risk --- #
+elif page == "Risk":
+    st.title("Risk register")
+    st.caption("Everything that could cost the group money, in one place · "
+               "receivables and collections, then the portfolio's investment policy")
+
+    st.markdown("#### Receivables")
+    c = st.columns(4)
     over90 = aging.loc[["91-120", "120+"], "sum"].sum()
     c[0].metric("Open receivables", money(ar_open))
-    c[1].metric("Aged 90+ days", money(over90))
-    c[2].metric("90+ share", f"{over90/ar_open*100:.0f}%")
-    st.markdown("#### Aging profile")
+    c[1].metric("Aged 90+ days", money(over90), delta_color="inverse")
+    c[2].metric("90+ share", f"{over90/ar_open*100:.0f}%", delta_color="inverse")
+    k = kpi_ratios(E, ni, rev, bs_df)
+    c[3].metric("DSO", f"{k['dso']:.0f} days", f"DPO {k['dpo']:.0f} days",
+                delta_color="off")
+
+    st.markdown("##### Aging profile")
     colors = [TEAL, "#6E9B33", AMBER, "#C0392B", RED]
     fig = go.Figure(go.Bar(x=aging.index, y=aging["sum"], marker_color=colors,
                            text=[money(v) for v in aging["sum"]], textposition="outside"))
-    fig.update_layout(height=360, yaxis_title="Balance (USD)", margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(height=340, yaxis_title="Balance (USD)",
+                      margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(style_fig(fig, theme), use_container_width=True)
-    st.markdown("#### Largest open balances")
-    cr = cust_risk.reset_index().rename(columns={"CustomerRef_name": "Customer", "AvgDays": "Avg days outstanding"})
+
+    st.markdown("##### Largest open balances")
+    cr = cust_risk.reset_index().rename(
+        columns={"CustomerRef_name": "Customer", "AvgDays": "Avg days outstanding"})
     cr["Balance"] = cr["Balance"].map(money)
     cr["Avg days outstanding"] = cr["Avg days outstanding"].map(lambda v: f"{v:.0f}")
     st.dataframe(cr, hide_index=True, use_container_width=True)
+
+    # ---- control account vs subledger -------------------------------------
+    gap = ar_control_gap(L)
+    st.markdown("##### Control account vs subledger")
+    st.warning(md(
+        f"The general ledger carries {money(gap['control'])} of receivables; the open "
+        f"invoices total {money(gap['subledger'])}. **{money(gap['gap'])} is "
+        f"unreconciled** — {money(gap['je_adj'])} of journal adjustments posted straight "
+        f"to the control account, and the remainder collections not reflected in invoice "
+        f"balances. The aging above is built from the subledger, so it understates the "
+        f"ledger position by that amount."))
+    st.dataframe(pd.DataFrame([
+        {"Component": "Invoiced to customers", "Amount": money(gap["invoiced"])},
+        {"Component": "Journal adjustments to AR", "Amount": money(gap["je_adj"])},
+        {"Component": "Cash collections applied", "Amount": money(gap["collected"])},
+        {"Component": "= AR per general ledger", "Amount": money(gap["control"])},
+        {"Component": "Open invoices (subledger)", "Amount": money(gap["subledger"])},
+        {"Component": "Unreconciled difference", "Amount": money(gap["gap"])},
+    ]), hide_index=True, use_container_width=True)
+
+    # ---- portfolio investment policy --------------------------------------
+    st.markdown("---")
+    st.markdown("#### Portfolio investment policy")
+    pol = portfolio_policy()
+    if pol is None:
+        st.info("Portfolio data not generated — run `python3 generate_portfolio_data.py`.")
+    else:
+        c = st.columns(3)
+        for col, b in zip(c, pol):
+            col.metric(b["check"], b["observed"],
+                       f"limit {b['limit']} · {b['cash']}",
+                       delta_color="inverse" if b["breached"] else "normal")
+        st.dataframe(pd.DataFrame([
+            {"Check": b["check"], "Observed": b["observed"], "Limit": b["limit"],
+             "Status": "BREACH" if b["breached"] else "within limit",
+             "Cash at risk": b["cash"], "Owner": b["owner"], "Due": b["due"],
+             "Action": b["action"]} for b in pol]),
+            hide_index=True, use_container_width=True)
+        st.caption("Full workings, including the rolling-beta chart that exposes the "
+                   "drift, are on the Portfolio & factors page.")
 
 # --------------------------------------------------- Portfolio & factors --- #
 elif page == "Portfolio & factors":
@@ -790,7 +1111,8 @@ elif page == "Details":
             c = st.columns(4)
             c[0].metric("Marked value", summary["value"],
                         summary["gain_pct"] + " vs cost")
-            c[1].metric("FF5 alpha, net", summary["alpha"], "after the 45bp charge")
+            c[1].metric("FF5 alpha, net", summary["alpha"], "after the 45bp charge",
+                        delta_color="off")
             c[2].metric("Max drawdown", summary["mdd"],
                         f"policy −{summary['dd_limit']}", delta_color="inverse")
             c[3].metric("Policy breaches", summary["breaches"],
