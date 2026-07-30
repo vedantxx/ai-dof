@@ -255,13 +255,13 @@ def ar_analysis(_inv: pd.DataFrame):
 
 
 @st.cache_data(show_spinner="Running the factor regressions…")
-def treasury_tearsheet(window: int, theme: str) -> str:
+def portfolio_tearsheet(window: int, theme: str) -> str:
     """Full treasury analysis, rendered to a self-contained HTML page.
 
     Cached per window: the rolling regressions re-fit on every window change and
     cost a second or two.
     """
-    from treasury import analytics as tan, config as tcfg, render as trender
+    from portfolio import analytics as tan, config as tcfg, render as trender
 
     returns = tan.load_returns(tcfg.RETURNS_CSV)
     res = tan.run_full_analysis(returns, window=window, try_live=False)
@@ -388,7 +388,7 @@ if st.query_params.get("theme") != theme:
 inject_theme_css(theme)
 page = st.sidebar.radio(
     "View", ["Overview", "Financial statements", "Budget tracker",
-             "Receivables & risk", "Treasury & factors", "Details"])
+             "Receivables & risk", "Portfolio & factors", "Details"])
 st.sidebar.markdown("---")
 st.sidebar.caption(
     "Source: repo CSVs (same data as the Quadratic workbook — not a live query). "
@@ -537,11 +537,11 @@ elif page == "Receivables & risk":
     cr["Avg days outstanding"] = cr["Avg days outstanding"].map(lambda v: f"{v:.0f}")
     st.dataframe(cr, hide_index=True, use_container_width=True)
 
-# --------------------------------------------------- Treasury & factors --- #
-elif page == "Treasury & factors":
-    from treasury import config as tcfg
+# --------------------------------------------------- Portfolio & factors --- #
+elif page == "Portfolio & factors":
+    from portfolio import config as tcfg
 
-    st.title("Treasury portfolio & factor analysis")
+    st.title("Portfolio & factor analysis")
     st.caption(
         "Meridian's excess cash under management · CAPM, Fama-French 3- and "
         "5-factor regressions, rolling factor betas and investment-policy "
@@ -549,8 +549,8 @@ elif page == "Treasury & factors":
 
     if not tcfg.RETURNS_CSV.exists():
         st.error(
-            "Treasury data not found. Generate it with:\n\n"
-            "```\npython3 generate_treasury_data.py\n```")
+            "Portfolio data not found. Generate it with:\n\n"
+            "```\npython3 generate_portfolio_data.py\n```")
     else:
         window = st.radio(
             "Rolling window", tcfg.ALLOWED_WINDOWS,
@@ -565,7 +565,7 @@ elif page == "Treasury & factors":
         # components.html despite the deprecation notice: st.iframe takes a src
         # path or URL, not a rendered HTML string, and the iframe sandbox is what
         # stops the tearsheet's dark stylesheet leaking into the Streamlit chrome.
-        components.html(treasury_tearsheet(window, theme), height=3600,
+        components.html(portfolio_tearsheet(window, theme), height=3600,
                         scrolling=True)
 
 # ----------------------------------------------------------------- Details - #
@@ -586,7 +586,7 @@ elif page == "Details":
 
 st.sidebar.markdown("---")
 st.sidebar.caption(
-    "Theme styles the app chrome, every chart and the treasury tearsheet. Table "
+    "Theme styles the app chrome, every chart and the portfolio tearsheet. Table "
     "cells render to a canvas, so their colours follow Streamlit's own setting "
     "(Settings ▸ Choose app theme).")
 st.sidebar.caption("© Meridian Holdings Group is fictional. Data is synthetic.")
