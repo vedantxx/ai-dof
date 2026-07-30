@@ -320,11 +320,11 @@ def fmt_df(df, pct_rows=()):
 #  sidebar: st.dataframe renders to a canvas, so its cell colours follow
 #  Streamlit's own setting rather than ours.
 DARK = dict(bg="#0a0e17", panel="#131a2b", border="rgba(96,165,250,0.16)",
-            text="#e2e8f0", muted="#94a3b8", template="plotly_dark",
-            grid="rgba(148,163,184,0.14)")
+            text="#e2e8f0", muted="#94a3b8", accent="#4ade80",
+            template="plotly_dark", grid="rgba(148,163,184,0.14)")
 LIGHT = dict(bg="#ffffff", panel="#f6f8fb", border="rgba(31,56,100,0.14)",
-             text="#14203a", muted="#5b6b85", template="plotly_white",
-             grid="rgba(31,56,100,0.10)")
+             text="#14203a", muted="#5b6b85", accent="#0F6B4F",
+             template="plotly_white", grid="rgba(31,56,100,0.10)")
 
 
 def theme_palette(theme: str) -> dict:
@@ -334,8 +334,28 @@ def theme_palette(theme: str) -> dict:
 def inject_theme_css(theme: str) -> None:
     """Restyle Streamlit's chrome to match the chosen theme."""
     p = theme_palette(theme)
+
+    # The top bar replaces the sidebar, so its styling applies in both themes.
+    st.markdown(f"""
+        <style>
+        /* No sidebar: pull the page up and give the top bar room. */
+        [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] {{
+            display: none;
+        }}
+        [data-testid="stAppViewBlockContainer"] {{ padding-top: 2.4rem; }}
+        .brandbar {{ display: flex; align-items: baseline; gap: 8px;
+                     flex-wrap: wrap; line-height: 1.2; }}
+        .brandbar-mark {{ color: {p['accent']}; font-size: 17px; }}
+        .brandbar-name {{ font-weight: 700; letter-spacing: 1.2px;
+                          font-size: 17px; color: {p['text']}; }}
+        .brandbar-sub {{ font-size: 11.5px; color: {p['muted']};
+                         letter-spacing: 0.2px; }}
+        .topbar-rule {{ height: 1px; background: {p['border']};
+                        margin: 10px 0 18px; }}
+        </style>""", unsafe_allow_html=True)
+
     if theme != "dark":
-        return          # light is Streamlit's default; nothing to override
+        return          # light is Streamlit's default; nothing further to override
     st.markdown(f"""
         <style>
         [data-testid="stAppViewContainer"], [data-testid="stHeader"],
@@ -348,6 +368,22 @@ def inject_theme_css(theme: str) -> None:
         [data-testid="stMetricLabel"], [data-testid="stCaptionContainer"],
         .stCaption, small {{ color: {p['muted']} !important; }}
         [data-testid="stMetricValue"] {{ color: {p['text']} !important; }}
+        /* The top-bar controls keep Streamlit's light widget background (base is
+           light in config.toml), which left pale text on white. Restyle both
+           states off aria-checked. */
+        [data-testid="stButtonGroup"] button[aria-checked="false"] {{
+            background: {p['panel']} !important;
+            border-color: {p['border']} !important;
+            color: {p['muted']} !important;
+        }}
+        [data-testid="stButtonGroup"] button[aria-checked="false"]:hover {{
+            color: {p['text']} !important;
+        }}
+        [data-testid="stButtonGroup"] button[aria-checked="true"] {{
+            background: rgba(74, 222, 128, 0.14) !important;
+            border-color: rgba(74, 222, 128, 0.45) !important;
+            color: {p['accent']} !important;
+        }}
         [data-testid="stExpander"], [data-testid="stNotification"] {{
             background: {p['panel']}; border: 1px solid {p['border']};
         }}
@@ -397,27 +433,42 @@ aging, cust_risk, ar_open = ar_analysis(L["inv"])
 total_rev = rev(QUARTERS)
 total_ni = ni(QUARTERS)
 
-st.sidebar.title("AI DOF")
-st.sidebar.caption("Meridian Holdings Group · consolidated · USD")
+# --------------------------------------------------------------------------- #
+#  Top bar — brand, navigation, theme
+# --------------------------------------------------------------------------- #
+PAGES = ["Overview", "Financial statements", "Budget tracker",
+         "Receivables & risk", "Portfolio & factors", "Details"]
+THEME_ICONS = {"dark": ":material/dark_mode:", "light": ":material/light_mode:"}
 
-# Seed from the URL on first load so ?theme=light is shareable, then let the
-# widget own the value.
+# Seed the theme from the URL on first load so ?theme=light is shareable, then
+# let the control own it.
 _qp_theme = st.query_params.get("theme")
 if "theme" not in st.session_state:
     st.session_state["theme"] = _qp_theme if _qp_theme in ("dark", "light") else "dark"
-theme = st.sidebar.radio("Theme", ["dark", "light"], horizontal=True, key="theme",
-                         format_func=str.capitalize)
+
+brand, nav, toggle = st.columns([2.1, 6.4, 1.5], vertical_alignment="center")
+with brand:
+    st.markdown(
+        "<div class='brandbar'><span class='brandbar-mark'>◆</span>"
+        "<span class='brandbar-name'>AI DOF</span>"
+        "<span class='brandbar-sub'>Meridian Holdings Group · consolidated · USD</span>"
+        "</div>", unsafe_allow_html=True)
+with nav:
+    page = st.segmented_control(
+        "View", PAGES, default=st.session_state.get("page", PAGES[0]),
+        key="page", label_visibility="collapsed")
+with toggle:
+    theme = st.segmented_control(
+        "Theme", ["dark", "light"], key="theme", label_visibility="collapsed",
+        format_func=lambda t: THEME_ICONS[t])
+
+# segmented_control returns None if the user deselects; fall back rather than crash.
+page = page or PAGES[0]
+theme = theme or "dark"
 if st.query_params.get("theme") != theme:
     st.query_params["theme"] = theme
 inject_theme_css(theme)
-page = st.sidebar.radio(
-    "View", ["Overview", "Financial statements", "Budget tracker",
-             "Receivables & risk", "Portfolio & factors", "Details"])
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Source: repo CSVs (same data as the Quadratic workbook — not a live query). "
-    "Actuals are real GL activity; opening balances, budget allocations and the "
-    "FY2026 projection are **modelled**.")
+st.markdown("<div class='topbar-rule'></div>", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------- Overview -- #
 if page == "Overview":
@@ -627,9 +678,5 @@ elif page == "Details":
     else:
         st.error("cfo-review-ai-dof-command-centre-jul2026.html not found in the repo root.")
 
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Theme styles the app chrome, every chart and the portfolio tearsheet. Table "
-    "cells render to a canvas, so their colours follow Streamlit's own setting "
-    "(Settings ▸ Choose app theme).")
-st.sidebar.caption("© Meridian Holdings Group is fictional. Data is synthetic.")
+st.markdown("<div class='topbar-rule'></div>", unsafe_allow_html=True)
+st.caption("© Meridian Holdings Group is fictional. Data is synthetic.")
