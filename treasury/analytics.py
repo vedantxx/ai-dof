@@ -555,6 +555,7 @@ class AnalysisResult:
     breaches: list[Breach]
     operating_group: RegressionResult
     operating_entities: pd.DataFrame
+    operating_actual_n: int      # months of ACTUAL ledger revenue in the panel
     factor_source: str
     factor_is_synthetic: bool
     window: int
@@ -579,7 +580,8 @@ def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
     rolling_betas = rolling_factor_betas(portfolio, factor_data, cfg.FF5_FACTORS, window)
     roll_sharpe = rolling_sharpe(portfolio, window, rf_daily)
     breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas)
-    group, entities = operating_factor_model(load_operating_panel())
+    operating_panel = load_operating_panel()
+    group, entities = operating_factor_model(operating_panel)
 
     return AnalysisResult(
         returns=returns, rf_daily=rf_daily,
@@ -587,6 +589,7 @@ def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
         capm=capm, ff5=ff5, ff3=ff3,
         rolling_betas=rolling_betas, rolling_sharpe=roll_sharpe,
         breaches=breaches, operating_group=group, operating_entities=entities,
+        operating_actual_n=int(operating_panel["is_actual"].sum()),
         factor_source=factor_data.source,
         factor_is_synthetic=factor_data.is_synthetic,
         window=window,

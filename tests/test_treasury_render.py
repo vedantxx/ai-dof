@@ -52,3 +52,87 @@ def test_attribution_chart_marks_the_policy_ceiling(analysis):
     html = charts.build_all_charts(analysis)["attribution"]
     # The mandate ceiling must be drawn, or the drift has no reference line.
     assert "mandate" in html.lower()
+
+
+# ---------------------------------------------------------------- renderer -- #
+@pytest.fixture(scope="module")
+def page(analysis) -> str:
+    from treasury import render
+    return render.render_tearsheet(analysis)
+
+
+def test_page_is_self_contained_and_offline(page):
+    """No external resource may be LOADED.
+
+    Substring checks are the wrong instrument here: the inlined Plotly bundle
+    contains 'cdn.plot.ly' as its default topojsonURL config value, which is only
+    ever fetched for choropleth maps this page does not draw. What matters is
+    that no tag points off-host.
+    """
+    import re
+
+    assert page.lstrip().startswith("<!DOCTYPE html>")
+
+    external_src = re.findall(r'<(?:script|img|iframe)[^>]+src\s*=\s*["\']https?://',
+                              page, re.IGNORECASE)
+    assert not external_src, f"external src refs: {external_src}"
+
+    external_href = re.findall(r'<link[^>]+href\s*=\s*["\']https?://', page,
+                               re.IGNORECASE)
+    assert not external_href, f"external stylesheet refs: {external_href}"
+
+    assert "@import" not in page, "no CSS @import (would fetch off-host)"
+    assert "fonts.googleapis.com" not in page, "webfonts must be system stacks"
+
+    # And the library really is embedded rather than referenced.
+    assert "Plotly.newPlot" in page
+    assert "<script>" in page
+
+
+def test_page_carries_the_reference_layout_classes(page):
+    for cls in ("results-head", "results-title", "cards-grid", "metric-card",
+                "charts-grid", "panel-wide", "benchmark-panel", "factor-table",
+                "divider-row", "tables-grid", "bg-grid", "topbar"):
+        assert cls in page, cls
+
+
+def test_page_declares_the_reference_palette(page):
+    for colour in ("#0a0e17", "rgba(20, 27, 45, 0.72)", "#4ade80", "#60a5fa",
+                   "#f87171", "#fbbf24"):
+        assert colour in page, colour
+
+
+def test_page_labels_the_modelled_factor_source(page):
+    """Honesty requirement: modelled factors must never pass as market data."""
+    assert "banner-warn" in page
+    assert "MODELLED" in page
+
+
+def test_page_reports_all_three_policy_breaches_with_owners(page, analysis):
+    assert "banner-danger" in page
+    assert "3 breaches" in page.lower()
+    for b in analysis.breaches:
+        assert b.check in page
+        assert b.owner in page
+        assert b.due in page
+
+
+def test_page_includes_both_factor_tables_and_the_operating_section(page):
+    assert "Fama-French 5-Factor" in page
+    assert "Fama-French 3-Factor" in page
+    assert "CAPM" in page
+    assert "Operating Factor Model" in page
+    for entity in cfg.OPERATING_ENTITIES:
+        assert entity in page
+
+
+def test_page_states_the_observation_count_and_date_range(page, analysis):
+    assert str(len(analysis.returns)) in page
+    assert "2024" in page and "2026" in page
+
+
+def test_write_artifact_produces_a_committable_file(analysis, tmp_path):
+    from treasury import render
+    out = render.write_artifact(analysis, tmp_path / "tearsheet.html")
+    assert out.exists()
+    assert out.stat().st_size > 500_000, "Plotly is inlined, so expect a large file"
