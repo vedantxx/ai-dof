@@ -1,0 +1,7 @@
+# The in-app Theme toggle (sidebar) restyles the chrome, the charts and the
+# portfolio tearsheet. This block sets what Streamlit's own widgets and table
+# canvases use, which script code cannot change for a live session.
+[theme]
+base = "light"
+primaryColor = "#0F6B4F"
+font = "sans serif"

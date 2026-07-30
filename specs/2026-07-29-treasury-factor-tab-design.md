@@ -221,8 +221,15 @@ Three checks, stated as an investment policy on the page so the breaches are leg
 | Maximum drawdown | ≤ 10% | past limit — **breach** | (realized MDD − 10%) × notional |
 | FF5 alpha, net of fees | ≥ 0 | negative — **breach** | annual fee paid × notional |
 
-Portfolio notional is a MODELLED constant, $9.0M of the group's cash — set in the generator
-config and used only for sizing the breaches in dollars.
+**Superseded during implementation.** The notional was specified here as a MODELLED $9.0M
+constant. That was wrong twice: it is not the group's equity ($21.03M), and it exceeded the
+entire cash balance ($6.14M at 30 Jun 2026), so such a portfolio could not have existed.
+Since every breach is sized off it, all three dollar figures were inflated.
+
+It is now derived in `treasury/ledger.py` as closing cash less a `BUFFER_MONTHS` operating
+buffer — $1.88M at a two-month buffer, and zero at the conventional three months, which the
+page states. `treasury.ledger` mirrors `streamlit_app`'s cash logic and a test ties the two
+opening-cash constants together.
 
 Figures above are targets, not assertions. The generator is tuned once against acceptance
 bands (see the plan's calibration step) and the tests assert the bands, not decimal-exact
@@ -235,6 +242,18 @@ no business on the page.
 
 Each breach renders with the three things the `ai-dof` skill requires of a finding: why it
 matters sized in cash, the risk it creates, and the action with an owner and a date.
+
+## Theming
+
+Added after the initial build. A sidebar toggle drives the whole app: injected CSS for
+Streamlit's chrome, a per-theme palette applied to every Plotly figure on all five pages,
+and a `theme` argument to `render_tearsheet`. Light mode overrides the tearsheet
+stylesheet's `:root` variables rather than shipping a second stylesheet that could drift.
+The choice is mirrored into the URL as `?theme=`.
+
+Streamlit's own light/dark setting cannot be changed from script code for a live session, so
+`st.dataframe`'s canvas-rendered cells follow that setting rather than the toggle. Stated in
+the sidebar rather than hidden.
 
 ## Page layout
 

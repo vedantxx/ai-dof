@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="results-head">
+  <div>
+    <h1 class="results-title">Portfolio Tearsheet</h1>
+    <p class="results-meta">
+      {{ n_obs }} daily observations · {{ start_date }} → {{ end_date }} ·
+      {{ window }}d rolling window · {{ notional }} marked against {{ cost_basis }}
+      invested ({{ portfolio_gain_pct }})
+    </p>
+  </div>
+</div>
+
+{% if factor_is_synthetic %}
+<div class="banner banner-warn">
+  ⚠ Fama-French factors are a <strong>MODELLED</strong> panel committed to this repo,
+  not real market data — so the page renders identically offline. Factor loadings below
+  are illustrative of the technique.
+</div>
+{% else %}
+<div class="banner banner-info">
+  Factor data source: <strong>{{ factor_source }}</strong>
+</div>
+{% endif %}
+
+<div class="banner banner-danger">
+  <strong>Investment policy — {{ breach_count }} breaches</strong>
+  <p style="margin-top:6px;font-size:12.5px;color:var(--muted)">
+    Breaches are sized against {{ notional }}, the portfolio's current mark. Cost basis
+    of {{ cost_basis }} is the ledger's contributed capital — what the members actually
+    put in.
+  </p>
+  <ul class="breach-list">
+    {% for b in breaches %}
+    <li class="breach">
+      <div>
+        <div class="breach-head">{{ b.check }}</div>
+        <div class="breach-nums">
+          {{ b.observed }} vs limit {{ b.limit }}
+          {% if b.breached %}✗{% else %}<span class="ok">✓</span>{% endif %}
+        </div>
+        <div class="breach-nums breach-cash">{{ b.cash }}</div>
+      </div>
+      <div class="breach-body">
+        <p>{{ b.why }}</p>
+        <p class="risk">{{ b.risk }}</p>
+        <p class="breach-action">{{ b.action }}
+          · <strong>{{ b.owner }}</strong> · by {{ b.due }}</p>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<section class="cards-grid">
+  {% for c in cards %}
+  <div class="metric-card">
+    <div class="metric-label">{{ c.label }}</div>
+    <div class="metric-value
+      {%- if c.positive is not none %}{% if c.positive %} pos{% else %} neg{% endif %}{% endif %}">
+      {{ c.value }}
+    </div>
+    <div class="metric-hint">{{ c.hint }}</div>
+  </div>
+  {% endfor %}
+</section>
+
+<section class="charts-grid">
+  <div class="panel panel-wide">
+    <h3 class="panel-title">Portfolio Companies
+      <span class="panel-sub">{{ notional }} marked · {{ cost_basis }} invested ·
+        {{ portfolio_gain }} gain</span>
+    </h3>
+    <table class="factor-table holdings-table">
+      <thead>
+        <tr>
+          <th>Company</th><th>Stake</th><th>Shares</th>
+          <th>Price</th><th>Since inception</th>
+          <th>Cost</th><th>Value</th><th>Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in holding_rows %}
+        <tr>
+          <td class="fac-name" title="{{ h.business }}">
+            <strong>{{ h.ticker }}</strong> · {{ h.name }}
+            <div class="holding-biz">{{ h.business }}</div>
+          </td>
+          <td class="mono">{{ h.ownership }}</td>
+          <td class="mono">{{ h.shares }}</td>
+          <td class="mono">{{ h.price }}
+            <div class="holding-biz mono">from {{ h.price_open }}</div>
+          </td>
+          <td class="mono pos">{{ h.total_return }}</td>
+          <td class="mono">{{ h.cost }}</td>
+          <td class="mono">{{ h.value }}</td>
+          <td class="mono{% if h.over_limit %} weight-over{% endif %}">{{ h.weight }}
+            {%- if h.over_limit %} ✗{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="table-note">
+      Weights drift with price and are never rebalanced, so the best performer becomes
+      the largest exposure. ✗ marks a position above the {{ max_weight }} concentration
+      limit. Ownership is MHG's stake; share counts and prices are MODELLED.
+    </p>
+  </div>
+  <div class="panel panel-wide">{{ chart_html.holdings | safe }}</div>
+  <div class="panel panel-wide">{{ chart_html.equity | safe }}</div>
+  <div class="panel">{{ chart_html.drawdown | safe }}</div>
+  <div class="panel">{{ chart_html.rolling_sharpe | safe }}</div>
+  <div class="panel panel-wide">{{ chart_html.attribution | safe }}</div>
+  <div class="panel">{{ chart_html.loadings | safe }}</div>
+  <div class="panel benchmark-panel">
+    <h3 class="panel-title">SPY Benchmark</h3>
+    <table class="bench-table">
+      <tr><td>CAGR</td><td>{{ spy_stats.cagr }}</td></tr>
+      <tr><td>Volatility</td><td>{{ spy_stats.vol }}</td></tr>
+      <tr><td>Sharpe</td><td>{{ spy_stats.sharpe }}</td></tr>
+      <tr><td>Max Drawdown</td><td>{{ spy_stats.mdd }}</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="tables-grid">
+  <div class="panel">
+    <h3 class="panel-title">Fama-French 5-Factor Regression
+      <span class="panel-sub">R² = {{ '%.3f' % ff5_r2 }}</span>
+    </h3>
+    <table class="factor-table">
+      <thead>
+        <tr><th>Factor</th><th>β / coef</th><th>Annualized</th><th>t-stat</th><th>p-value</th></tr>
+      </thead>
+      <tbody>
+        {% for r in ff5_rows %}
+        <tr class="{{ 'sig' if r.significant else 'insig' }}">
+          <td class="fac-name" title="{{ r.description }}">{{ r.name }}</td>
+          <td class="mono">{{ r.coef }}</td>
+          <td class="mono">{{ r.annualized }}</td>
+          <td class="mono">{{ r.tstat }}</td>
+          <td class="mono">{{ r.pvalue }}{% if r.significant %} <span class="star">★</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="table-note">★ significant at the 5% level (p &lt; 0.05).</p>
+  </div>
+
+  <div class="panel">
+    <h3 class="panel-title">Fama-French 3-Factor &amp; CAPM
+      <span class="panel-sub">FF3 R² = {{ '%.3f' % ff3_r2 }}</span>
+    </h3>
+    <table class="factor-table">
+      <thead>
+        <tr><th>Factor</th><th>β / coef</th><th>Annualized</th><th>t-stat</th><th>p-value</th></tr>
+      </thead>
+      <tbody>
+        {% for r in ff3_rows %}
+        <tr class="{{ 'sig' if r.significant else 'insig' }}">
+          <td class="fac-name" title="{{ r.description }}">{{ r.name }}</td>
+          <td class="mono">{{ r.coef }}</td>
+          <td class="mono">{{ r.annualized }}</td>
+          <td class="mono">{{ r.tstat }}</td>
+          <td class="mono">{{ r.pvalue }}{% if r.significant %} <span class="star">★</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        <tr class="divider-row"><td colspan="5">CAPM (vs SPY)</td></tr>
+        {% for r in capm_rows %}
+        <tr class="{{ 'sig' if r.significant else 'insig' }}">
+          <td class="fac-name" title="{{ r.description }}">{{ r.name }}</td>
+          <td class="mono">{{ r.coef }}</td>
+          <td class="mono">{{ r.annualized }}</td>
+          <td class="mono">{{ r.tstat }}</td>
+          <td class="mono">{{ r.pvalue }}{% if r.significant %} <span class="star">★</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="table-note">
+      CAPM alpha of {{ capm_alpha }} against FF5 alpha of {{ ff5_alpha }}: the gap is
+      style premia a single market factor cannot see, not skill.
+    </p>
+  </div>
+</section>
+
+{% endblock %}
