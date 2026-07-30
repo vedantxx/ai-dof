@@ -536,3 +536,58 @@ def operating_factor_model(panel: pd.DataFrame
     entities = pd.DataFrame(rows).T.reindex(cfg.OPERATING_ENTITIES)
     entities.index.name = "entity"
     return group, entities
+
+
+# --------------------------------------------------------------------------- #
+#  7. Orchestration -- one call, everything the page needs
+# --------------------------------------------------------------------------- #
+@dataclass
+class AnalysisResult:
+    returns: pd.DataFrame
+    rf_daily: pd.Series
+    perf_portfolio: PerformanceStats
+    perf_spy: PerformanceStats
+    capm: RegressionResult
+    ff5: RegressionResult
+    ff3: RegressionResult
+    rolling_betas: pd.DataFrame
+    rolling_sharpe: pd.Series
+    breaches: list[Breach]
+    operating_group: RegressionResult
+    operating_entities: pd.DataFrame
+    factor_source: str
+    factor_is_synthetic: bool
+    window: int
+
+
+def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
+                      try_live: bool = True) -> AnalysisResult:
+    """Compute the whole tearsheet from a cleaned returns frame."""
+    portfolio, spy = returns["portfolio_return"], returns["SPY"]
+
+    # Factors first: the panel supplies the risk-free rate everything else uses.
+    factor_data = load_factors(try_live=try_live)
+    rf = factor_data.factors.get("RF")
+    rf_daily = (rf.reindex(returns.index).ffill().fillna(0.0)
+                if rf is not None else pd.Series(0.0, index=returns.index))
+
+    perf_portfolio = performance_stats(portfolio, rf_daily)
+    perf_spy = performance_stats(spy, rf_daily)
+    capm = capm_regression(portfolio, spy, rf_daily)
+    ff5 = fama_french_regression(portfolio, factor_data, cfg.FF5_FACTORS)
+    ff3 = fama_french_regression(portfolio, factor_data, cfg.FF3_FACTORS)
+    rolling_betas = rolling_factor_betas(portfolio, factor_data, cfg.FF5_FACTORS, window)
+    roll_sharpe = rolling_sharpe(portfolio, window, rf_daily)
+    breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas)
+    group, entities = operating_factor_model(load_operating_panel())
+
+    return AnalysisResult(
+        returns=returns, rf_daily=rf_daily,
+        perf_portfolio=perf_portfolio, perf_spy=perf_spy,
+        capm=capm, ff5=ff5, ff3=ff3,
+        rolling_betas=rolling_betas, rolling_sharpe=roll_sharpe,
+        breaches=breaches, operating_group=group, operating_entities=entities,
+        factor_source=factor_data.source,
+        factor_is_synthetic=factor_data.is_synthetic,
+        window=window,
+    )
