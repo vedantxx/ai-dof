@@ -24,6 +24,11 @@
 
 <div class="banner banner-danger">
   <strong>Treasury investment policy — {{ breach_count }} breaches</strong>
+  <p style="margin-top:6px;font-size:12.5px;color:var(--muted)">
+    Breaches are sized against {{ notional }} of investable cash — the group's closing
+    cash balance less a {{ buffer_months }}-month operating buffer, both read from the
+    ledger. At a conventional three-month buffer there is no investable excess at all.
+  </p>
   <ul class="breach-list">
     {% for b in breaches %}
     <li class="breach">

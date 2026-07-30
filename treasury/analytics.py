@@ -414,13 +414,19 @@ def _money(v: float) -> str:
 
 
 def policy_check(perf: PerformanceStats, capm: RegressionResult,
-                 ff5: RegressionResult, rolling: pd.DataFrame) -> list[Breach]:
+                 ff5: RegressionResult, rolling: pd.DataFrame,
+                 notional: float | None = None) -> list[Breach]:
     """Evaluate the treasury investment policy.
 
     Returns all three checks in a stable order whether or not they breach, so
     the page can show a compliance table rather than only bad news.
+
+    ``notional`` sizes every breach in cash. It defaults to the investable cash
+    derived from the ledger rather than an assumed figure.
     """
-    notional = cfg.PORTFOLIO_NOTIONAL
+    from treasury.ledger import investable_cash
+
+    notional = investable_cash() if notional is None else notional
     limits = cfg.POLICY
 
     # --- 1. Mandate drift. The peak ROLLING beta, not the full-period beta:
@@ -563,6 +569,7 @@ class AnalysisResult:
     rolling_betas: pd.DataFrame
     rolling_sharpe: pd.Series
     breaches: list[Breach]
+    notional: float             # investable cash the breaches are sized against
     operating_group: RegressionResult
     operating_entities: pd.DataFrame
     operating_actual_n: int      # months of ACTUAL ledger revenue in the panel
@@ -589,7 +596,10 @@ def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
     ff3 = fama_french_regression(portfolio, factor_data, cfg.FF3_FACTORS)
     rolling_betas = rolling_factor_betas(portfolio, factor_data, cfg.FF5_FACTORS, window)
     roll_sharpe = rolling_sharpe(portfolio, window, rf_daily)
-    breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas)
+    from treasury.ledger import investable_cash
+
+    notional = investable_cash()
+    breaches = policy_check(perf_portfolio, capm, ff5, rolling_betas, notional)
     operating_panel = load_operating_panel()
     group, entities = operating_factor_model(operating_panel)
 
@@ -598,9 +608,17 @@ def run_full_analysis(returns: pd.DataFrame, window: int = cfg.DEFAULT_WINDOW,
         perf_portfolio=perf_portfolio, perf_spy=perf_spy,
         capm=capm, ff5=ff5, ff3=ff3,
         rolling_betas=rolling_betas, rolling_sharpe=roll_sharpe,
-        breaches=breaches, operating_group=group, operating_entities=entities,
+        breaches=breaches, notional=notional,
+        operating_group=group, operating_entities=entities,
         operating_actual_n=int(operating_panel["is_actual"].sum()),
         factor_source=factor_data.source,
         factor_is_synthetic=factor_data.is_synthetic,
         window=window,
     )
+
+
+def investable_notional() -> float:
+    """The cash figure every breach is sized against. Convenience re-export."""
+    from treasury.ledger import investable_cash
+
+    return investable_cash()

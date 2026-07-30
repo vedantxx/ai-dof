@@ -12,27 +12,28 @@ import plotly.graph_objects as go
 from treasury import config as cfg
 from treasury.analytics import AnalysisResult, drawdown_series, wealth_index
 
-_ACCENT = "#4ade80"       # portfolio
-_ACCENT_2 = "#60a5fa"     # benchmark
-_DANGER = "#f87171"       # drawdowns and breaches
-_WARN = "#fbbf24"
-_MUTED = "#94a3b8"
-_GRID = "rgba(148,163,184,0.12)"
-_PAPER = "rgba(0,0,0,0)"
+_PAPER = "rgba(0,0,0,0)"   # panels supply the background, in both themes
 _FONT = "Inter, 'Segoe UI', system-ui, sans-serif"
-
-_FACTOR_COLORS = {
-    "Mkt-RF": "#60a5fa", "SMB": "#4ade80", "HML": "#fbbf24",
-    "RMW": "#c084fc", "CMA": "#f472b6",
-}
 _CONFIG = {"displayModeBar": False, "responsive": True}
+
+# Set by build_all_charts before each render. Module-level rather than threaded
+# through every builder because the palette applies uniformly to all of them.
+_C = cfg.CHART_COLORS[cfg.DEFAULT_THEME]
+
+
+def _use_theme(theme: str) -> None:
+    global _C, _ACCENT, _ACCENT_2, _DANGER, _WARN, _MUTED, _GRID, _FACTOR_COLORS
+    _C = cfg.CHART_COLORS[theme]
+    _ACCENT, _ACCENT_2 = _C["accent"], _C["accent_2"]
+    _DANGER, _WARN, _MUTED = _C["danger"], _C["warn"], _C["muted"]
+    _GRID, _FACTOR_COLORS = _C["grid"], _C["factors"]
 
 
 def _layout(title: str, height: int = 340) -> dict:
     return dict(
-        title=dict(text=title, font=dict(size=15, color="#e2e8f0"), x=0.01,
+        title=dict(text=title, font=dict(size=15, color=_C["title"]), x=0.01,
                    xanchor="left"),
-        template="plotly_dark",
+        template=_C["template"],
         paper_bgcolor=_PAPER, plot_bgcolor=_PAPER,
         font=dict(family=_FONT, color=_MUTED, size=12),
         margin=dict(l=52, r=20, t=44, b=40),
@@ -42,6 +43,13 @@ def _layout(title: str, height: int = 340) -> dict:
         xaxis=dict(gridcolor=_GRID, zeroline=False),
         yaxis=dict(gridcolor=_GRID, zeroline=False),
     )
+
+
+def _fill(hex_colour: str, alpha: float) -> str:
+    """A translucent version of a palette colour, for area fills."""
+    h = hex_colour.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha})"
 
 
 def _html(fig: go.Figure, div_id: str) -> str:
@@ -56,7 +64,7 @@ def build_equity_curve(res: AnalysisResult) -> str:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=port.index, y=port.values, name="Treasury portfolio",
                              mode="lines", line=dict(color=_ACCENT, width=2.2),
-                             fill="tozeroy", fillcolor="rgba(74,222,128,0.08)"))
+                             fill="tozeroy", fillcolor=_fill(_ACCENT, 0.08)))
     fig.add_trace(go.Scatter(x=spy.index, y=spy.values, name="SPY", mode="lines",
                              line=dict(color=_ACCENT_2, width=1.8, dash="dot")))
     fig.update_layout(**_layout("Equity Curve — Growth of $1"))
@@ -76,7 +84,7 @@ def build_drawdown(res: AnalysisResult) -> str:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=dd.index, y=dd.values, name="Drawdown", mode="lines",
                              line=dict(color=_DANGER, width=1.4), fill="tozeroy",
-                             fillcolor="rgba(248,113,113,0.20)"))
+                             fillcolor=_fill(_DANGER, 0.20)))
     fig.add_hline(y=limit, line=dict(color=_WARN, width=1, dash="dash"),
                   annotation_text=f"policy limit {limit:.0f}%",
                   annotation_font=dict(color=_WARN, size=10))
@@ -90,7 +98,7 @@ def build_rolling_sharpe(res: AnalysisResult) -> str:
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=rs.index, y=rs.values, name="Rolling Sharpe",
                              mode="lines", line=dict(color=_WARN, width=1.8),
-                             fill="tozeroy", fillcolor="rgba(251,191,36,0.08)"))
+                             fill="tozeroy", fillcolor=_fill(_WARN, 0.08)))
     fig.add_hline(y=1.0, line=dict(color="rgba(148,163,184,0.5)", width=1, dash="dash"))
     fig.update_layout(**_layout(f"Rolling Sharpe Ratio ({res.window}-day window)"))
     return _html(fig, "chart-rollsharpe")
@@ -156,7 +164,9 @@ def build_operating_loadings(res: AnalysisResult) -> str:
     return _html(fig, "chart-operating")
 
 
-def build_all_charts(res: AnalysisResult) -> dict[str, str]:
+def build_all_charts(res: AnalysisResult,
+                     theme: str = cfg.DEFAULT_THEME) -> dict[str, str]:
+    _use_theme(theme)
     return {
         "equity": build_equity_curve(res),
         "drawdown": build_drawdown(res),

@@ -255,7 +255,7 @@ def ar_analysis(_inv: pd.DataFrame):
 
 
 @st.cache_data(show_spinner="Running the factor regressions…")
-def treasury_tearsheet(window: int) -> str:
+def treasury_tearsheet(window: int, theme: str) -> str:
     """Full treasury analysis, rendered to a self-contained HTML page.
 
     Cached per window: the rolling regressions re-fit on every window change and
@@ -265,7 +265,7 @@ def treasury_tearsheet(window: int) -> str:
 
     returns = tan.load_returns(tcfg.RETURNS_CSV)
     res = tan.run_full_analysis(returns, window=window, try_live=False)
-    return trender.render_tearsheet(res)
+    return trender.render_tearsheet(res, theme=theme)
 
 
 # --------------------------------------------------------------------------- #
@@ -284,6 +284,73 @@ def fmt_df(df, pct_rows=()):
     return df.apply(lambda row: row.map(
         lambda v: f"{v*100:.1f}%" if row.name in pct_rows
         else (f"{v:,.0f}" if isinstance(v, (int, float)) else v)), axis=1)
+
+
+# --------------------------------------------------------------------------- #
+#  Theme
+# --------------------------------------------------------------------------- #
+#  Streamlit's own light/dark setting lives in its Settings menu and cannot be
+#  changed from script code for a live session, so the toggle owns the styling:
+#  injected CSS for the app chrome, a palette for every Plotly figure, and the
+#  theme argument the tearsheet renders with. One caveat, called out in the
+#  sidebar: st.dataframe renders to a canvas, so its cell colours follow
+#  Streamlit's own setting rather than ours.
+DARK = dict(bg="#0a0e17", panel="#131a2b", border="rgba(96,165,250,0.16)",
+            text="#e2e8f0", muted="#94a3b8", template="plotly_dark",
+            grid="rgba(148,163,184,0.14)")
+LIGHT = dict(bg="#ffffff", panel="#f6f8fb", border="rgba(31,56,100,0.14)",
+             text="#14203a", muted="#5b6b85", template="plotly_white",
+             grid="rgba(31,56,100,0.10)")
+
+
+def theme_palette(theme: str) -> dict:
+    return DARK if theme == "dark" else LIGHT
+
+
+def inject_theme_css(theme: str) -> None:
+    """Restyle Streamlit's chrome to match the chosen theme."""
+    p = theme_palette(theme)
+    if theme != "dark":
+        return          # light is Streamlit's default; nothing to override
+    st.markdown(f"""
+        <style>
+        [data-testid="stAppViewContainer"], [data-testid="stHeader"],
+        [data-testid="stBottomBlockContainer"] {{ background: {p['bg']}; }}
+        [data-testid="stSidebarContent"] {{ background: {p['panel']}; }}
+        [data-testid="stAppViewContainer"] *:not(svg):not(path),
+        [data-testid="stSidebarContent"] *:not(svg):not(path) {{
+            color: {p['text']};
+        }}
+        [data-testid="stMetricLabel"], [data-testid="stCaptionContainer"],
+        .stCaption, small {{ color: {p['muted']} !important; }}
+        [data-testid="stMetricValue"] {{ color: {p['text']} !important; }}
+        [data-testid="stExpander"], [data-testid="stNotification"] {{
+            background: {p['panel']}; border: 1px solid {p['border']};
+        }}
+        hr {{ border-color: {p['border']}; }}
+        </style>""", unsafe_allow_html=True)
+
+
+def style_fig(fig, theme: str):
+    """Apply the active palette to a Plotly figure built for either theme."""
+    p = theme_palette(theme)
+    # Legend and axis text are SVG, coloured by `fill` rather than CSS `color`,
+    # so the global font setting does not reach them — set both explicitly or the
+    # legend renders dark-on-dark.
+    fig.update_layout(template=p["template"],
+                      paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(0,0,0,0)",
+                      font=dict(color=p["muted"]),
+                      legend=dict(font=dict(color=p["text"])))
+    # Only touch the title when there is one: setting title.font on a figure
+    # without title text makes Plotly render the literal string "undefined".
+    if fig.layout.title.text:
+        fig.update_layout(title=dict(font=dict(color=p["text"])))
+    fig.update_xaxes(gridcolor=p["grid"], color=p["muted"],
+                     title_font=dict(color=p["muted"]))
+    fig.update_yaxes(gridcolor=p["grid"], color=p["muted"],
+                     title_font=dict(color=p["muted"]))
+    return fig
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +375,17 @@ total_ni = ni(QUARTERS)
 
 st.sidebar.title("AI DOF")
 st.sidebar.caption("Meridian Holdings Group · consolidated · USD")
+
+# Seed from the URL on first load so ?theme=light is shareable, then let the
+# widget own the value.
+_qp_theme = st.query_params.get("theme")
+if "theme" not in st.session_state:
+    st.session_state["theme"] = _qp_theme if _qp_theme in ("dark", "light") else "dark"
+theme = st.sidebar.radio("Theme", ["dark", "light"], horizontal=True, key="theme",
+                         format_func=str.capitalize)
+if st.query_params.get("theme") != theme:
+    st.query_params["theme"] = theme
+inject_theme_css(theme)
 page = st.sidebar.radio(
     "View", ["Overview", "Financial statements", "Budget tracker",
              "Receivables & risk", "Treasury & factors", "Details"])
@@ -342,7 +420,7 @@ if page == "Overview":
                       yaxis2=dict(overlaying="y", side="right", showgrid=False,
                                   range=[0, max(q_rev)], showticklabels=False),
                       margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig, theme), use_container_width=True)
     st.info("Gross margin steps down 36.6% → 35.5% → 34.4% — the planted Cascade Freight "
             "erosion, masked at group level by Apex improving in step.")
 
@@ -392,7 +470,7 @@ elif page == "Budget tracker":
                            textposition="outside"))
     fig.add_vline(x=100, line=dict(color=RED, dash="dash"), annotation_text="100% allocation")
     fig.update_layout(height=430, xaxis_title="Utilisation %", margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig, theme), use_container_width=True)
 
     # ---- FY2026 (in progress) ----
     st.subheader("FY2026 · in progress (H1 actuals only)")
@@ -415,7 +493,7 @@ elif page == "Budget tracker":
                      line=dict(color=AMBER, width=3, dash="dash"))
     fig2.update_layout(height=400, yaxis_title="Cumulative USD",
                        legend=dict(orientation="h", y=1.12), margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(style_fig(fig2, theme), use_container_width=True)
 
     # ---- pie: allocation mix ----
     col1, col2 = st.columns([1, 1])
@@ -425,7 +503,7 @@ elif page == "Budget tracker":
                                 textinfo="percent", sort=False))
         fig3.update_layout(height=430, legend=dict(orientation="v", x=1.0, font=dict(size=10)),
                            margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(style_fig(fig3, theme), use_container_width=True)
     with col2:
         st.markdown("#### Detail")
         show = bud.copy()
@@ -452,7 +530,7 @@ elif page == "Receivables & risk":
     fig = go.Figure(go.Bar(x=aging.index, y=aging["sum"], marker_color=colors,
                            text=[money(v) for v in aging["sum"]], textposition="outside"))
     fig.update_layout(height=360, yaxis_title="Balance (USD)", margin=dict(l=10, r=10, t=10, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(style_fig(fig, theme), use_container_width=True)
     st.markdown("#### Largest open balances")
     cr = cust_risk.reset_index().rename(columns={"CustomerRef_name": "Customer", "AvgDays": "Avg days outstanding"})
     cr["Balance"] = cr["Balance"].map(money)
@@ -487,7 +565,8 @@ elif page == "Treasury & factors":
         # components.html despite the deprecation notice: st.iframe takes a src
         # path or URL, not a rendered HTML string, and the iframe sandbox is what
         # stops the tearsheet's dark stylesheet leaking into the Streamlit chrome.
-        components.html(treasury_tearsheet(window), height=3600, scrolling=True)
+        components.html(treasury_tearsheet(window, theme), height=3600,
+                        scrolling=True)
 
 # ----------------------------------------------------------------- Details - #
 elif page == "Details":
@@ -506,4 +585,8 @@ elif page == "Details":
         st.error("cfo-review-ai-dof-command-centre-jul2026.html not found in the repo root.")
 
 st.sidebar.markdown("---")
+st.sidebar.caption(
+    "Theme styles the app chrome, every chart and the treasury tearsheet. Table "
+    "cells render to a canvas, so their colours follow Streamlit's own setting "
+    "(Settings ▸ Choose app theme).")
 st.sidebar.caption("© Meridian Holdings Group is fictional. Data is synthetic.")

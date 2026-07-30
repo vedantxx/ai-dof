@@ -229,7 +229,7 @@ def test_every_breach_is_sized_in_cash_and_assigned(breaches):
     """The ai-dof skill's rule: why it matters in cash, the risk, the action."""
     for b in breaches:
         assert b.cash_at_risk > 0
-        assert b.cash_at_risk < cfg.PORTFOLIO_NOTIONAL
+        assert b.cash_at_risk < an.investable_notional()
         assert b.why and b.risk and b.action and b.owner and b.due
 
 
@@ -238,7 +238,7 @@ def test_beta_breach_is_sized_off_the_market_stress_assumption(breaches):
     # excess beta x stress x notional
     assert beta_breach.cash_at_risk == pytest.approx(
         (float(beta_breach.observed) - cfg.POLICY["max_beta"])
-        * cfg.POLICY["market_stress"] * cfg.PORTFOLIO_NOTIONAL, rel=0.01)
+        * cfg.POLICY["market_stress"] * an.investable_notional(), rel=0.01)
 
 
 def test_policy_check_reports_compliance_when_limits_are_respected():

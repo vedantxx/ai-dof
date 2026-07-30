@@ -41,7 +41,13 @@ ALLOWED_WINDOWS = (21, 63, 126)
 # --------------------------------------------------------------------------- #
 RF_ANNUAL = 0.043             # risk-free rate, constant over the sample
 FEE_ANNUAL = 0.0045           # 45bp management fee, netted out of the series
-PORTFOLIO_NOTIONAL = 9_000_000.0   # MODELLED: group cash under management
+
+# Portfolio size is DERIVED from the ledger, not assumed -- see treasury.ledger.
+# It was hardcoded at $9.0M, which exceeded the group's entire cash balance
+# ($6.14M at 30 Jun 2026) and so could not have existed. Every breach on the page
+# is sized off this figure, so getting it wrong inflated all three.
+OPENING_CASH = 12_000_000.0   # mirrors streamlit_app.OPENING["cash"]; a test ties them
+BUFFER_MONTHS = 2             # months of operating cash held back before investing
 
 # Daily standard deviations. Mkt-RF ~16%/yr; style factors are long/short and
 # therefore much less volatile.
@@ -131,4 +137,42 @@ OPERATING_FACTOR_LABELS = {
     "freight_rate_index": "Freight rate index",
     "diesel_price": "Diesel price",
     "industrial_production": "Industrial production",
+}
+
+# --------------------------------------------------------------------------- #
+#  Theming
+# --------------------------------------------------------------------------- #
+# The tearsheet's stylesheet declares the dark values in :root. Light mode is
+# applied by overriding those same variables, so there is one stylesheet rather
+# than two that can drift apart.
+THEMES = ("dark", "light")
+DEFAULT_THEME = "dark"
+
+LIGHT_VARS = {
+    "--bg": "#f6f8fb",
+    "--bg-2": "#ffffff",
+    "--panel": "rgba(255, 255, 255, 0.92)",
+    "--panel-border": "rgba(31, 56, 100, 0.14)",
+    "--text": "#14203a",
+    "--muted": "#5b6b85",
+    "--muted-2": "#7b8AA3",
+    "--accent": "#0F6B4F",      # the app's existing teal reads on white
+    "--accent-2": "#1F3864",    # and its navy
+    "--danger": "#B3261E",
+    "--warn": "#B45309",
+}
+
+# Chart colours per theme. The dark set is the reference project's; the light set
+# is the palette the other four pages already use, so the app reads as one system.
+CHART_COLORS = {
+    "dark": dict(accent="#4ade80", accent_2="#60a5fa", danger="#f87171",
+                 warn="#fbbf24", muted="#94a3b8", title="#e2e8f0",
+                 grid="rgba(148,163,184,0.12)", template="plotly_dark",
+                 factors={"Mkt-RF": "#60a5fa", "SMB": "#4ade80", "HML": "#fbbf24",
+                          "RMW": "#c084fc", "CMA": "#f472b6"}),
+    "light": dict(accent="#0F6B4F", accent_2="#1F3864", danger="#B3261E",
+                  warn="#B45309", muted="#5b6b85", title="#14203a",
+                  grid="rgba(31,56,100,0.10)", template="plotly_white",
+                  factors={"Mkt-RF": "#1F3864", "SMB": "#0F6B4F", "HML": "#B45309",
+                           "RMW": "#6D28D9", "CMA": "#BE185D"}),
 }

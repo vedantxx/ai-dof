@@ -91,20 +91,38 @@ def _cards(res: AnalysisResult) -> list[dict]:
     ]
 
 
-def _view_model(res: AnalysisResult) -> dict:
+def _theme_css(theme: str) -> str:
+    """Light mode overrides the stylesheet's :root variables rather than shipping
+    a second stylesheet that could drift out of step with the first."""
+    if theme == "dark":
+        return ""
+    decls = "".join(f"{k}:{v};" for k, v in cfg.LIGHT_VARS.items())
+    # .bg-grid paints the dark radial backdrop; neutralise it in light mode.
+    return (f":root{{{decls}}}"
+            ".bg-grid{background:var(--bg);}"
+            ".bg-grid::after{opacity:0.5;}"
+            ".topbar{background:rgba(255,255,255,0.85);}"
+            ".metric-card::before{opacity:0.35;}"
+            ".banner-warn{background:rgba(180,83,9,0.08);color:#7c3a06;}"
+            ".banner-danger{background:rgba(179,38,30,0.06);color:#7f1d1d;}"
+            ".breach-body .risk{color:#B3261E;}")
+
+
+def _view_model(res: AnalysisResult, theme: str = cfg.DEFAULT_THEME) -> dict:
     ent = res.operating_entities
     betas = ent["freight_beta"].astype(float).sort_values(ascending=False)
     exposed = ", ".join(betas.index[:2])
     defensive = ", ".join(betas.index[2:])
     return dict(
-        inline_css=_CSS.read_text(encoding="utf-8"),
+        inline_css=_CSS.read_text(encoding="utf-8") + _theme_css(theme),
         inline_plotly=_plotly_js(),
-        chart_html=charts.build_all_charts(res),
+        chart_html=charts.build_all_charts(res, theme),
         n_obs=len(res.returns),
         start_date=res.returns.index.min().strftime("%d %b %Y"),
         end_date=res.returns.index.max().strftime("%d %b %Y"),
         window=res.window,
-        notional=_money(cfg.PORTFOLIO_NOTIONAL),
+        notional=_money(res.notional),
+        buffer_months=cfg.BUFFER_MONTHS,
         factor_source=res.factor_source,
         factor_is_synthetic=res.factor_is_synthetic,
         breach_count=sum(1 for b in res.breaches if b.breached),
@@ -138,13 +156,16 @@ def _view_model(res: AnalysisResult) -> dict:
     )
 
 
-def render_tearsheet(res: AnalysisResult) -> str:
+def render_tearsheet(res: AnalysisResult, theme: str = cfg.DEFAULT_THEME) -> str:
     """The complete page as one self-contained HTML string."""
-    return _env().get_template("tearsheet.html").render(**_view_model(res))
+    if theme not in cfg.THEMES:
+        raise ValueError(f"theme must be one of {cfg.THEMES}, got {theme!r}")
+    return _env().get_template("tearsheet.html").render(**_view_model(res, theme))
 
 
-def write_artifact(res: AnalysisResult, path=None) -> pathlib.Path:
+def write_artifact(res: AnalysisResult, path=None,
+                   theme: str = cfg.DEFAULT_THEME) -> pathlib.Path:
     """Write the page to disk as a committable portfolio artifact."""
     path = pathlib.Path(path or cfg.ARTIFACT_HTML)
-    path.write_text(render_tearsheet(res), encoding="utf-8")
+    path.write_text(render_tearsheet(res, theme), encoding="utf-8")
     return path

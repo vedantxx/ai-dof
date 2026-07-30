@@ -164,3 +164,36 @@ def test_write_artifact_produces_a_committable_file(analysis, tmp_path):
     out = render.write_artifact(analysis, tmp_path / "tearsheet.html")
     assert out.exists()
     assert out.stat().st_size > 500_000, "Plotly is inlined, so expect a large file"
+
+
+# ------------------------------------------------------------------ themes -- #
+def test_dark_is_the_default_and_leaves_the_stylesheet_alone(analysis):
+    from treasury import render
+    page = render.render_tearsheet(analysis)
+    assert "--bg: #0a0e17" in page
+    assert "--bg:#f6f8fb" not in page, "no light override in the default theme"
+
+
+def test_light_theme_overrides_the_root_variables(analysis):
+    from treasury import render
+    page = render.render_tearsheet(analysis, theme="light")
+    # The dark declarations stay (one stylesheet); the override wins by order.
+    assert "--bg: #0a0e17" in page
+    assert "--bg:#f6f8fb" in page
+    assert page.index("--bg: #0a0e17") < page.index("--bg:#f6f8fb"), \
+        "the light override must come after the dark declaration to win"
+
+
+def test_light_theme_recolours_the_charts(analysis):
+    from treasury import charts
+    light = charts.build_all_charts(analysis, "light")
+    assert "#0F6B4F" in light["equity"], "light accent (the app's teal)"
+    assert "#4ade80" not in light["equity"], "dark accent must not leak through"
+    # Restore the module palette so later tests see the default.
+    charts.build_all_charts(analysis, "dark")
+
+
+def test_render_rejects_an_unknown_theme(analysis):
+    from treasury import render
+    with pytest.raises(ValueError, match="theme must be one of"):
+        render.render_tearsheet(analysis, theme="solarized")
