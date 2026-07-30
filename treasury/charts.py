@@ -25,12 +25,6 @@ _FACTOR_COLORS = {
     "Mkt-RF": "#60a5fa", "SMB": "#4ade80", "HML": "#fbbf24",
     "RMW": "#c084fc", "CMA": "#f472b6",
 }
-_OPERATING_COLORS = {
-    "freight_rate_index": "#4ade80",
-    "diesel_price": "#f87171",
-    "industrial_production": "#60a5fa",
-}
-
 _CONFIG = {"displayModeBar": False, "responsive": True}
 
 
@@ -66,7 +60,13 @@ def build_equity_curve(res: AnalysisResult) -> str:
     fig.add_trace(go.Scatter(x=spy.index, y=spy.values, name="SPY", mode="lines",
                              line=dict(color=_ACCENT_2, width=1.8, dash="dot")))
     fig.update_layout(**_layout("Equity Curve — Growth of $1"))
-    fig.update_yaxes(tickprefix="$")
+    # The reference fills to zero, which squashes a 1.0->1.2 range into the top
+    # fifth of the panel. Keep the fill, but bound the axis to the data so the
+    # drawdown episode is actually legible.
+    lo = float(min(port.min(), spy.min()))
+    hi = float(max(port.max(), spy.max()))
+    pad = (hi - lo) * 0.12 or 0.02
+    fig.update_yaxes(tickprefix="$", range=[lo - pad, hi + pad])
     return _html(fig, "chart-equity")
 
 
@@ -130,18 +130,29 @@ def build_factor_loadings_bar(res: AnalysisResult) -> str:
 
 
 def build_operating_loadings(res: AnalysisResult) -> str:
-    """Per-entity revenue sensitivity to the freight cycle."""
-    ent = res.operating_entities
-    fig = go.Figure()
-    for factor in cfg.OPERATING_FACTORS:
-        fig.add_trace(go.Bar(
-            x=list(ent.index), y=ent[factor].astype(float),
-            name=factor.replace("_", " "),
-            marker_color=_OPERATING_COLORS.get(factor, _MUTED)))
-    fig.add_hline(y=0.0, line=dict(color="rgba(148,163,184,0.4)", width=1))
+    """Per-entity revenue sensitivity to the freight cycle.
+
+    One series, not three: the per-entity multivariate coefficients on the other
+    two macro factors are not identified well enough at 59 observations to put on
+    a chart. See operating_factor_model.
+    """
+    ent = res.operating_entities.sort_values("freight_beta", ascending=False)
+    betas = ent["freight_beta"].astype(float)
+    # Every entity sits above 1.0, so a 1.0 threshold colours them all the same.
+    # Split on 1.25 instead: that is where the freight-exposed pair separates
+    # from the contract-based pair.
+    fig = go.Figure(go.Bar(
+        x=list(ent.index), y=betas.values,
+        marker_color=[_ACCENT if b >= 1.25 else _ACCENT_2 for b in betas],
+        text=[f"{b:.2f}" for b in betas], textposition="outside",
+        hovertext=[f"R²={float(ent.loc[e, 'r_squared']):.2f}" for e in ent.index]))
+    fig.add_hline(y=1.0, line=dict(color="rgba(148,163,184,0.45)", width=1,
+                                   dash="dash"),
+                  annotation_text="moves 1:1 with the freight cycle",
+                  annotation_position="bottom left",
+                  annotation_font=dict(color=_MUTED, size=10))
     fig.update_layout(**_layout(
-        "Revenue Sensitivity by Entity — Operating Factor Loadings", height=360))
-    fig.update_layout(barmode="group")
+        "Revenue Beta to the Freight Cycle, by Entity", height=360))
     return _html(fig, "chart-operating")
 
 

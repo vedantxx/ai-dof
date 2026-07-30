@@ -93,7 +93,9 @@ def _cards(res: AnalysisResult) -> list[dict]:
 
 def _view_model(res: AnalysisResult) -> dict:
     ent = res.operating_entities
-    most_cyclical = ent["freight_rate_index"].astype(float).idxmax()
+    betas = ent["freight_beta"].astype(float).sort_values(ascending=False)
+    exposed = ", ".join(betas.index[:2])
+    defensive = ", ".join(betas.index[2:])
     return dict(
         inline_css=_CSS.read_text(encoding="utf-8"),
         inline_plotly=_plotly_js(),
@@ -124,14 +126,15 @@ def _view_model(res: AnalysisResult) -> dict:
         operating_n=res.operating_group.nobs,
         operating_actual_n=res.operating_actual_n,
         entity_rows=[dict(entity=e,
-                          freight=_num(float(ent.loc[e, "freight_rate_index"]), 2),
-                          diesel=_num(float(ent.loc[e, "diesel_price"]), 2),
-                          indpro=_num(float(ent.loc[e, "industrial_production"]), 2),
+                          freight=_num(float(ent.loc[e, "freight_beta"]), 2),
+                          tstat=_num(float(ent.loc[e, "tstat"]), 2),
                           r2=_num(float(ent.loc[e, "r_squared"]), 3))
                      for e in ent.index],
         operating_note=(
-            f"{most_cyclical} carries the highest freight-rate beta, so a downturn "
-            f"in spot rates lands there first and hardest."),
+            f"{exposed} amplify the freight cycle at a beta near "
+            f"{betas.iloc[:2].mean():.1f}; {defensive} sit near 1.0. The top two are "
+            f"within {abs(betas.iloc[0] - betas.iloc[1]):.2f} of each other and are not "
+            f"separable — a downturn in spot rates lands on both first."),
     )
 
 

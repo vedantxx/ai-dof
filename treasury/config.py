@@ -127,3 +127,8 @@ OPERATING_FACTOR_DESCRIPTIONS = {
     "diesel_price": "Diesel price, month-on-month change (a cost input).",
     "industrial_production": "Industrial production index, month-on-month change.",
 }
+OPERATING_FACTOR_LABELS = {
+    "freight_rate_index": "Freight rate index",
+    "diesel_price": "Diesel price",
+    "industrial_production": "Industrial production",
+}

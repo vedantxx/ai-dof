@@ -174,18 +174,19 @@
     </p>
   </div>
   <div class="panel">
-    <h3 class="panel-title">Revenue Beta by Entity</h3>
+    <h3 class="panel-title">Revenue Beta by Entity
+      <span class="panel-sub">univariate, vs the freight cycle</span>
+    </h3>
     <table class="entity-table">
       <thead>
-        <tr><th>Entity</th><th>Freight rate</th><th>Diesel</th><th>Ind. prod.</th><th>R²</th></tr>
+        <tr><th>Entity</th><th>Freight beta</th><th>t-stat</th><th>R²</th></tr>
       </thead>
       <tbody>
         {% for r in entity_rows %}
         <tr>
           <td>{{ r.entity }}</td>
           <td class="mono">{{ r.freight }}</td>
-          <td class="mono">{{ r.diesel }}</td>
-          <td class="mono">{{ r.indpro }}</td>
+          <td class="mono">{{ r.tstat }}</td>
           <td class="mono">{{ r.r2 }}</td>
         </tr>
         {% endfor %}

@@ -89,6 +89,34 @@ def test_page_is_self_contained_and_offline(page):
     assert "<script>" in page
 
 
+def test_inlined_css_and_js_are_not_html_escaped(page):
+    """Autoescaping the <style> and <script> payloads renders every quote as
+    &#34;, which silently breaks the font stacks and every chart. Caught only by
+    screenshotting the page, so it is pinned here."""
+    style = page[page.index("<style>"):page.index("</style>")]
+    assert "&#34;" not in style and "&quot;" not in style
+    assert '"Inter"' in style, "font stack must survive intact"
+
+    # Plotly's own source contains the literal string "&#34;" in its entity
+    # handling, so scanning the bundle for entities gives false positives. Test
+    # the property that matters instead: its UMD wrapper's quotes are real, which
+    # is exactly what escaping destroys.
+    assert 'typeof module === "object"' in page
+    assert "typeof module === &#34;object&#34;" not in page
+
+
+def test_every_chart_div_has_a_matching_plot_call(page):
+    """A panel can render as an empty box while the page looks structurally
+    fine -- assert each chart div is actually plotted into. This is the failure
+    the escaping bug produced, and only a screenshot revealed it."""
+    import re
+
+    div_ids = sorted(set(re.findall(r'<div id="(chart-[^"]+)"', page)))
+    plotted = sorted(set(re.findall(r'Plotly\.newPlot\(\s*"([\w-]+)"', page)))
+    assert len(div_ids) == 6, div_ids
+    assert div_ids == plotted, f"divs {div_ids} vs plotted {plotted}"
+
+
 def test_page_carries_the_reference_layout_classes(page):
     for cls in ("results-head", "results-title", "cards-grid", "metric-card",
                 "charts-grid", "panel-wide", "benchmark-panel", "factor-table",

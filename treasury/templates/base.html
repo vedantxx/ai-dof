@@ -4,8 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}AI DOF — Treasury Tearsheet{% endblock %}</title>
-  <style>{{ inline_css }}</style>
-  <script>{{ inline_plotly }}</script>
+  <!-- | safe is required, not cosmetic: autoescaping turns every quote in the
+       stylesheet and the Plotly bundle into &#34;, which silently breaks the
+       font-family declarations and every chart on the page. -->
+  <style>{{ inline_css | safe }}</style>
+  <script>{{ inline_plotly | safe }}</script>
 </head>
 <body>
   <div class="bg-grid"></div>

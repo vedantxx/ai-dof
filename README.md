@@ -25,6 +25,12 @@ This project demonstrates that layer end to end, at a scale that would normally 
 │   │   └── examples/worked_example.md
 │   ├── ai-dof.skill                     Installable package
 │   └── ai-dof-workspace/                Sample render used to validate the template
+├── treasury/                            Treasury tearsheet — analytics, charts, templates
+├── generate_treasury_data.py            Deterministic synthetic-data generator
+├── data_compact/treasury/               Committed generated data (3 CSVs)
+├── tests/                               pytest suite for the treasury analytics
+├── specs/ and plans/                    Design spec and implementation plan
+├── treasury-tearsheet-jul2026.html      Rendered tearsheet, self-contained
 └── cfo-review-ai-dof-command-centre-jul2026.html   Live output from the first real run
 ```
 
@@ -61,6 +67,48 @@ The design splits judgment from presentation. `assets/dashboard_template.html` c
 The Quadratic workbook `AI_DOF_Command_Centre` sits between the data and the skill, with six analytical tabs: Executive KPI Summary, AR Aging Dashboard, Customer Risk Ranking, Collection Forecast, Overdue Invoice Monitor, and CFO Alerts.
 
 The included review (`cfo-review-ai-dof-command-centre-jul2026.html`) is the skill's first run against that workbook. Its headline finding is a modelling error in the collection forecast — the entire overdue recovery booked into a seven-day window — which is the kind of thing the analysis layer produces and only the judgment layer catches.
+
+## Treasury & factor analysis
+
+A fifth view applies quantitative portfolio analysis to the group's treasury: CAPM,
+Fama-French 3- and 5-factor regressions, rolling factor betas, rolling Sharpe, an
+underwater plot, and compliance against a stated investment policy. A second section
+turns the same machinery on Meridian's own revenue, regressing monthly growth on
+freight-rate, diesel and industrial-production factors.
+
+The layout and stylesheet are ported from the Quant Guild Library's "Intro — Trading
+Dashboard" teaching project. The page renders to a single self-contained HTML file with
+no CDN dependency, embedded in the Streamlit app and committed as
+`treasury-tearsheet-jul2026.html`.
+
+**Three findings are planted, in the same spirit as the ledger's sixteen:**
+
+1. **Mandate drift.** The portfolio rotates from defensive value into high-beta small-cap
+   growth in FY2026. The full-period beta is 0.94 and looks compliant against the 1.00
+   ceiling; only the 63-day rolling beta shows the breach, peaking at 1.45. An annual
+   report would miss it.
+2. **Drawdown past policy.** A six-week market selloff, amplified by the drifted beta,
+   takes maximum drawdown to −14.7% against a 10% capital-preservation limit — on cash
+   the group holds for operating liquidity, not for a risk premium.
+3. **Alpha that was never there.** CAPM reports +2.79% annualized alpha. That is the SMB,
+   HML and RMW premia, which a single market factor cannot see. Controlling for all five
+   factors leaves −0.36% gross and −0.81% net of the 45bp fee.
+
+The three findings are causally linked, which is the point: the drift is *why* the
+drawdown breached, and the apparent alpha is what stopped anyone asking.
+
+Portfolio returns, the factor panel and the pre-2024 operating history are **MODELLED**
+and generated deterministically by `generate_treasury_data.py`. The most recent 23 months
+of monthly revenue growth are **actual** ledger figures from
+`data_compact/csv/Invoices.csv`. The returns CSV uses the same `date,portfolio_return,SPY`
+schema as the reference project, so the two files are interchangeable.
+
+```bash
+pip install -r requirements.txt
+python3 generate_treasury_data.py --report   # regenerate and print realized stats
+python3 -m pytest tests/ -v                  # 52 tests
+streamlit run streamlit_app.py               # "Treasury & factors" in the sidebar
+```
 
 ## Roadmap
 

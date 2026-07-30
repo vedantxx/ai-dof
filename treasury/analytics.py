@@ -526,13 +526,23 @@ def operating_factor_model(panel: pd.DataFrame
     for l in group.loadings:
         if l.name != "Alpha":
             l.description = cfg.OPERATING_FACTOR_DESCRIPTIONS.get(l.name, "")
+            l.name = cfg.OPERATING_FACTOR_LABELS.get(l.name, l.name)
 
+    # Per entity, report the UNIVARIATE freight beta rather than three partial
+    # coefficients. With 59 observations and macro factors that co-move, the
+    # per-entity multivariate coefficients are too weakly identified to publish:
+    # they came out at +1.93 and -1.19 on industrial production, which is an
+    # artifact of the collinearity, not a fact about the entities. The freight
+    # beta is well identified and is the only figure the narrative uses.
     rows = {}
     for entity in cfg.OPERATING_ENTITIES:
-        res = _ols(panel[f"{entity}_growth"], X, label=entity)
-        row = {f: res.loading(f).coef for f in cfg.OPERATING_FACTORS}
-        row["r_squared"] = res.r_squared
-        rows[entity] = row
+        res = _ols(panel[f"{entity}_growth"],
+                   panel[["freight_rate_index"]], label=entity)
+        rows[entity] = {
+            "freight_beta": res.loading("freight_rate_index").coef,
+            "tstat": res.loading("freight_rate_index").tstat,
+            "r_squared": res.r_squared,
+        }
     entities = pd.DataFrame(rows).T.reindex(cfg.OPERATING_ENTITIES)
     entities.index.name = "entity"
     return group, entities

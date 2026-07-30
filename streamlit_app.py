@@ -254,6 +254,20 @@ def ar_analysis(_inv: pd.DataFrame):
     return aging, cust, o["Balance"].sum()
 
 
+@st.cache_data(show_spinner="Running the factor regressions…")
+def treasury_tearsheet(window: int) -> str:
+    """Full treasury analysis, rendered to a self-contained HTML page.
+
+    Cached per window: the rolling regressions re-fit on every window change and
+    cost a second or two.
+    """
+    from treasury import analytics as tan, config as tcfg, render as trender
+
+    returns = tan.load_returns(tcfg.RETURNS_CSV)
+    res = tan.run_full_analysis(returns, window=window, try_live=False)
+    return trender.render_tearsheet(res)
+
+
 # --------------------------------------------------------------------------- #
 #  Helpers
 # --------------------------------------------------------------------------- #
@@ -295,7 +309,8 @@ total_ni = ni(QUARTERS)
 st.sidebar.title("AI DOF")
 st.sidebar.caption("Meridian Holdings Group · consolidated · USD")
 page = st.sidebar.radio(
-    "View", ["Overview", "Financial statements", "Budget tracker", "Receivables & risk", "Details"])
+    "View", ["Overview", "Financial statements", "Budget tracker",
+             "Receivables & risk", "Treasury & factors", "Details"])
 st.sidebar.markdown("---")
 st.sidebar.caption(
     "Source: repo CSVs (same data as the Quadratic workbook — not a live query). "
@@ -443,6 +458,36 @@ elif page == "Receivables & risk":
     cr["Balance"] = cr["Balance"].map(money)
     cr["Avg days outstanding"] = cr["Avg days outstanding"].map(lambda v: f"{v:.0f}")
     st.dataframe(cr, hide_index=True, use_container_width=True)
+
+# --------------------------------------------------- Treasury & factors --- #
+elif page == "Treasury & factors":
+    from treasury import config as tcfg
+
+    st.title("Treasury portfolio & factor analysis")
+    st.caption(
+        "Meridian's excess cash under management · CAPM, Fama-French 3- and "
+        "5-factor regressions, rolling factor betas and investment-policy "
+        "compliance · the operating factor model sits in section 2")
+
+    if not tcfg.RETURNS_CSV.exists():
+        st.error(
+            "Treasury data not found. Generate it with:\n\n"
+            "```\npython3 generate_treasury_data.py\n```")
+    else:
+        window = st.radio(
+            "Rolling window", tcfg.ALLOWED_WINDOWS,
+            index=tcfg.ALLOWED_WINDOWS.index(tcfg.DEFAULT_WINDOW),
+            format_func=lambda w: f"{w} days",
+            horizontal=True,
+            help="63 trading days ≈ one quarter. Shorter windows react faster to "
+                 "style drift; longer ones are less noisy.")
+        st.markdown(
+            "The portfolio's full-period beta sits inside the 1.00 mandate ceiling. "
+            "The rolling window does not — which is the point of the page.")
+        # components.html despite the deprecation notice: st.iframe takes a src
+        # path or URL, not a rendered HTML string, and the iframe sandbox is what
+        # stops the tearsheet's dark stylesheet leaking into the Streamlit chrome.
+        components.html(treasury_tearsheet(window), height=3600, scrolling=True)
 
 # ----------------------------------------------------------------- Details - #
 elif page == "Details":
